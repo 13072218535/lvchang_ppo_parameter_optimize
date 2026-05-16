@@ -68,83 +68,18 @@ class DataProcessor:
         return df
 
     def create_features(self, df):
+        """
+        创建特征（精简版：仅使用原始高相关性特征，不添加统计/衍生特征）。
+        LSTM自行从7天窗口中学习时序模式，避免仿真中的统计特征反馈回路。
+        """
         df = df.copy()
         feature_cols = self.all_features.copy()
-        
-        # 为每个高相关性特征创建统计特征和差分特征（不包括目标变量）
-        for col in self.all_features:
-            if col == self.target:
-                continue
-                
-            # 3天滑动窗口统计特征
-            df[f'{col}_mean_3d'] = df.groupby('槽号')[col].transform(
-                lambda x: x.rolling(window=3, min_periods=1).mean())
-            df[f'{col}_std_3d'] = df.groupby('槽号')[col].transform(
-                lambda x: x.rolling(window=3, min_periods=1).std().fillna(0))
-            
-            # 7天滑动窗口统计特征
-            df[f'{col}_mean_7d'] = df.groupby('槽号')[col].transform(
-                lambda x: x.rolling(window=7, min_periods=1).mean())
-            df[f'{col}_std_7d'] = df.groupby('槽号')[col].transform(
-                lambda x: x.rolling(window=7, min_periods=1).std().fillna(0))
-            
-            # 1阶差分
-            df[f'{col}_diff_1'] = df.groupby('槽号')[col].transform(
-                lambda x: x.diff().fillna(0))
-            
-            # 7阶差分
-            df[f'{col}_diff_7'] = df.groupby('槽号')[col].transform(
-                lambda x: x.diff(7).fillna(0))
-            
-            # 添加新特征列名
-            feature_cols.extend([
-                f'{col}_mean_3d', f'{col}_std_3d',
-                f'{col}_mean_7d', f'{col}_std_7d',
-                f'{col}_diff_1', f'{col}_diff_7'
-            ])
-        
-        # 为目标变量创建统计特征（用于输入序列）
-        # 注意：目标变量已在 HIGH_CORR_FEATURES 中，但循环中已跳过
-        # 这里单独为目标变量创建统计特征
-        df[f'{self.target}_mean_3d'] = df.groupby('槽号')[self.target].transform(
-            lambda x: x.rolling(window=3, min_periods=1).mean())
-        df[f'{self.target}_std_3d'] = df.groupby('槽号')[self.target].transform(
-            lambda x: x.rolling(window=3, min_periods=1).std().fillna(0))
-        df[f'{self.target}_mean_7d'] = df.groupby('槽号')[self.target].transform(
-            lambda x: x.rolling(window=7, min_periods=1).mean())
-        df[f'{self.target}_std_7d'] = df.groupby('槽号')[self.target].transform(
-            lambda x: x.rolling(window=7, min_periods=1).std().fillna(0))
-        df[f'{self.target}_diff_1'] = df.groupby('槽号')[self.target].transform(
-            lambda x: x.diff().fillna(0))
-        df[f'{self.target}_diff_7'] = df.groupby('槽号')[self.target].transform(
-            lambda x: x.diff(7).fillna(0))
-        
-        feature_cols.extend([
-            f'{self.target}_mean_3d', f'{self.target}_std_3d',
-            f'{self.target}_mean_7d', f'{self.target}_std_7d',
-            f'{self.target}_diff_1', f'{self.target}_diff_7'
-        ])
-        
-        # 衍生特征
-        if '工作平均' in df.columns and '电压设定' in df.columns:
-            df['电压偏差'] = df['工作平均'] - df['电压设定']
-            feature_cols.append('电压偏差')
-        
-        if '铝水平' in df.columns and '电解质水平' in df.columns:
-            df['铝电解比例'] = df['铝水平'] / (df['电解质水平'] + 1e-8)
-            feature_cols.append('铝电解比例')
-        
-        # 槽龄相关特征（非线性处理）
-        if '槽龄' in df.columns:
-            df['槽龄_log'] = np.log1p(df['槽龄'])
-            df['槽龄_squared'] = df['槽龄'] ** 2
-            feature_cols.extend(['槽龄_log', '槽龄_squared'])
-        
+
         # 填充任何剩余的NaN值
         for col in feature_cols:
             if col in df.columns:
                 df[col] = df[col].fillna(df[col].mean())
-        
+
         return df, feature_cols
 
     def create_sequences(self, df, feature_cols, use_future_actions=False):

@@ -117,8 +117,8 @@ EMPIRICAL_AL_OUT_RATIO = -0.3  # 铝水平/出铝量经验系数
 EMPIRICAL_ELECTROLYTE_ALF = 0.02  # 电解质水平/ALF加料量经验系数
 
 # 终止条件
-MAX_EPISODE_STEPS = 14         # 最大步数（预测窗口）
-MAX_CUMULATIVE_ERROR = 0.3     # 累计误差上限 (V)
+MAX_EPISODE_STEPS = 14          # 最大步数（标准化bug已修复，恢复完整14步轨迹）
+MAX_CUMULATIVE_ERROR = 1.5      # 累计误差上限（放宽以允许agent体验完整轨迹，原0.3→1.5）
 
 # GAE参数
 GAE_GAMMA = 0.99

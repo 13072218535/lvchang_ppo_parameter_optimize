@@ -43,60 +43,22 @@ COLOR_DECREASE = '#3366CC'      # 动作减少 - 蓝色
 COLOR_CONVERGE = '#FF9900'      # 收敛方向标注
 
 
-def create_features_for_ppo(df):
-    """为PPO创建特征（与train_ppo.py完全一致）"""
+def prepare_raw_features(df):
+    """
+    准备原始特征（仅HIGH_CORR_FEATURES，不做统计/衍生特征工程）。
+    与train_ppo.py的prepare_raw_features完全一致。
+    """
     df = df.copy()
     feature_cols = HIGH_CORR_FEATURES.copy()
 
-    for col in HIGH_CORR_FEATURES:
-        if col == TARGET:
-            continue
-        df[f'{col}_mean_3d'] = df.groupby('槽号')[col].transform(
-            lambda x: x.rolling(window=3, min_periods=1).mean())
-        df[f'{col}_std_3d'] = df.groupby('槽号')[col].transform(
-            lambda x: x.rolling(window=3, min_periods=1).std().fillna(0))
-        df[f'{col}_mean_7d'] = df.groupby('槽号')[col].transform(
-            lambda x: x.rolling(window=7, min_periods=1).mean())
-        df[f'{col}_std_7d'] = df.groupby('槽号')[col].transform(
-            lambda x: x.rolling(window=7, min_periods=1).std().fillna(0))
-        df[f'{col}_diff_1'] = df.groupby('槽号')[col].transform(lambda x: x.diff().fillna(0))
-        df[f'{col}_diff_7'] = df.groupby('槽号')[col].transform(lambda x: x.diff(7).fillna(0))
-        feature_cols.extend([
-            f'{col}_mean_3d', f'{col}_std_3d',
-            f'{col}_mean_7d', f'{col}_std_7d',
-            f'{col}_diff_1', f'{col}_diff_7'
-        ])
-
-    df[f'{TARGET}_mean_3d'] = df.groupby('槽号')[TARGET].transform(
-        lambda x: x.rolling(window=3, min_periods=1).mean())
-    df[f'{TARGET}_std_3d'] = df.groupby('槽号')[TARGET].transform(
-        lambda x: x.rolling(window=3, min_periods=1).std().fillna(0))
-    df[f'{TARGET}_mean_7d'] = df.groupby('槽号')[TARGET].transform(
-        lambda x: x.rolling(window=7, min_periods=1).mean())
-    df[f'{TARGET}_std_7d'] = df.groupby('槽号')[TARGET].transform(
-        lambda x: x.rolling(window=7, min_periods=1).std().fillna(0))
-    df[f'{TARGET}_diff_1'] = df.groupby('槽号')[TARGET].transform(lambda x: x.diff().fillna(0))
-    df[f'{TARGET}_diff_7'] = df.groupby('槽号')[TARGET].transform(lambda x: x.diff(7).fillna(0))
-    feature_cols.extend([
-        f'{TARGET}_mean_3d', f'{TARGET}_std_3d',
-        f'{TARGET}_mean_7d', f'{TARGET}_std_7d',
-        f'{TARGET}_diff_1', f'{TARGET}_diff_7'
-    ])
-
-    if '工作平均' in df.columns and '电压设定' in df.columns:
-        df['电压偏差'] = df['工作平均'] - df['电压设定']
-        feature_cols.append('电压偏差')
-    if '铝水平' in df.columns and '电解质水平' in df.columns:
-        df['铝电解比例'] = df['铝水平'] / (df['电解质水平'] + 1e-8)
-        feature_cols.append('铝电解比例')
-    if '槽龄' in df.columns:
-        df['槽龄_log'] = np.log1p(df['槽龄'])
-        df['槽龄_squared'] = df['槽龄'] ** 2
-        feature_cols.extend(['槽龄_log', '槽龄_squared'])
-
     for col in feature_cols:
         if col in df.columns:
+            df[col] = df.groupby('槽号')[col].transform(lambda x: x.ffill(limit=3))
+            df[col] = df.groupby('槽号')[col].transform(lambda x: x.interpolate(method='linear'))
             df[col] = df[col].fillna(df[col].mean())
+
+    required_cols = ['日期', '槽号'] + [c for c in feature_cols if c in df.columns]
+    df = df[required_cols]
     return df, feature_cols
 
 
@@ -109,7 +71,7 @@ def load_test_data(data_path, test_pots):
     with open(SCALER_PATH, 'rb') as f:
         scaler = pickle.load(f)
 
-    df, feature_cols = create_features_for_ppo(df)
+    df, feature_cols = prepare_raw_features(df)
     all_pots = sorted(df['槽号'].unique())
     pot_to_idx = {pot: idx for idx, pot in enumerate(all_pots)}
 

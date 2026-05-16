@@ -18,8 +18,8 @@ def set_seed(seed=SEED):
     os.environ['PYTHONHASHSEED'] = str(seed)
 
 # 数据路径
-DATA_PATH = 'e:/TraeWorkplace/铝厂/2026-5-12-参数优化/槽况数据_处理后_v2.xlsx'
-OUTPUT_DIR = 'e:/TraeWorkplace/铝厂/2026-5-12-参数优化/model/output'
+DATA_PATH = 'e:/ClaudeCodeWorkplace/2026-5-12-参数优化/槽况数据_处理后_v2.xlsx'
+OUTPUT_DIR = 'e:/ClaudeCodeWorkplace/2026-5-12-参数优化/model/output'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # 序列长度配置

@@ -13,109 +13,59 @@ from ppo import MPDPPO
 from config import *
 
 
-def create_features_for_ppo(df):
+def prepare_raw_features(df):
     """
-    为PPO训练创建特征（与data_processor.py一致）
+    准备原始特征（仅HIGH_CORR_FEATURES，不做统计/衍生特征工程）。
+    优势：避免仿真中统计特征反馈回路，LSTM自行学习时序模式。
     参数:
         df: 原始数据框
     返回:
-        df: 添加特征后的数据框
-        feature_cols: 特征列名列表
+        df: 处理后数据框
+        feature_cols: 特征列名列表（仅12个原始高相关性特征）
     """
     df = df.copy()
     feature_cols = HIGH_CORR_FEATURES.copy()
-    
-    # 为每个高相关性特征创建统计特征和差分特征（不包括目标变量）
-    for col in HIGH_CORR_FEATURES:
-        if col == TARGET:
-            continue
-            
-        # 3天滑动窗口统计特征
-        df[f'{col}_mean_3d'] = df.groupby('槽号')[col].transform(
-            lambda x: x.rolling(window=3, min_periods=1).mean())
-        df[f'{col}_std_3d'] = df.groupby('槽号')[col].transform(
-            lambda x: x.rolling(window=3, min_periods=1).std().fillna(0))
-        
-        # 7天滑动窗口统计特征
-        df[f'{col}_mean_7d'] = df.groupby('槽号')[col].transform(
-            lambda x: x.rolling(window=7, min_periods=1).mean())
-        df[f'{col}_std_7d'] = df.groupby('槽号')[col].transform(
-            lambda x: x.rolling(window=7, min_periods=1).std().fillna(0))
-        
-        # 1阶差分
-        df[f'{col}_diff_1'] = df.groupby('槽号')[col].transform(
-            lambda x: x.diff().fillna(0))
-        
-        # 7阶差分
-        df[f'{col}_diff_7'] = df.groupby('槽号')[col].transform(
-            lambda x: x.diff(7).fillna(0))
-        
-        # 添加新特征列名
-        feature_cols.extend([
-            f'{col}_mean_3d', f'{col}_std_3d',
-            f'{col}_mean_7d', f'{col}_std_7d',
-            f'{col}_diff_1', f'{col}_diff_7'
-        ])
-    
-    # 为目标变量创建统计特征（用于输入序列）
-    df[f'{TARGET}_mean_3d'] = df.groupby('槽号')[TARGET].transform(
-        lambda x: x.rolling(window=3, min_periods=1).mean())
-    df[f'{TARGET}_std_3d'] = df.groupby('槽号')[TARGET].transform(
-        lambda x: x.rolling(window=3, min_periods=1).std().fillna(0))
-    df[f'{TARGET}_mean_7d'] = df.groupby('槽号')[TARGET].transform(
-        lambda x: x.rolling(window=7, min_periods=1).mean())
-    df[f'{TARGET}_std_7d'] = df.groupby('槽号')[TARGET].transform(
-        lambda x: x.rolling(window=7, min_periods=1).std().fillna(0))
-    df[f'{TARGET}_diff_1'] = df.groupby('槽号')[TARGET].transform(
-        lambda x: x.diff().fillna(0))
-    df[f'{TARGET}_diff_7'] = df.groupby('槽号')[TARGET].transform(
-        lambda x: x.diff(7).fillna(0))
-    
-    feature_cols.extend([
-        f'{TARGET}_mean_3d', f'{TARGET}_std_3d',
-        f'{TARGET}_mean_7d', f'{TARGET}_std_7d',
-        f'{TARGET}_diff_1', f'{TARGET}_diff_7'
-    ])
-    
-    # 衍生特征
-    if '工作平均' in df.columns and '电压设定' in df.columns:
-        df['电压偏差'] = df['工作平均'] - df['电压设定']
-        feature_cols.append('电压偏差')
-    
-    if '铝水平' in df.columns and '电解质水平' in df.columns:
-        df['铝电解比例'] = df['铝水平'] / (df['电解质水平'] + 1e-8)
-        feature_cols.append('铝电解比例')
-    
-    # 槽龄相关特征（非线性处理）
-    if '槽龄' in df.columns:
-        df['槽龄_log'] = np.log1p(df['槽龄'])
-        df['槽龄_squared'] = df['槽龄'] ** 2
-        feature_cols.extend(['槽龄_log', '槽龄_squared'])
-    
-    # 填充任何剩余的NaN值
+
+    # 填充缺失值：按槽号分组前向填充 + 线性插值 + 均值填充
     for col in feature_cols:
         if col in df.columns:
+            df[col] = df.groupby('槽号')[col].transform(lambda x: x.ffill(limit=3))
+            df[col] = df.groupby('槽号')[col].transform(lambda x: x.interpolate(method='linear'))
             df[col] = df[col].fillna(df[col].mean())
-    
+
+    # 保持原有列顺序：日期、槽号 + 特征列
+    required_cols = ['日期', '槽号'] + [c for c in feature_cols if c in df.columns]
+    df = df[required_cols]
+
     return df, feature_cols
 
 
 def load_data_for_ppo(data_path):
     """
-    加载数据用于PPO训练（使用完整特征工程）
+    加载数据用于PPO训练（使用精简原始特征，无统计/衍生特征）
     返回：样本列表、scaler、特征列名列表
     """
     df = pd.read_excel(data_path)
     df['日期'] = pd.to_datetime(df['日期'])
     df = df.sort_values(['槽号', '日期']).reset_index(drop=True)
-    
-    # 加载scaler（来自条件预测模型训练）
-    scaler_path = 'e:/ClaudeCodeWorkplace/2026-5-12-参数优化/model/output/scaler.pkl'
+
+    # 加载scaler（来自条件预测模型训练，需与predictor特征一致）
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    PROJECT_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
+    scaler_path = os.path.join(PROJECT_ROOT, 'model', 'output', 'scaler.pkl')
+    if not os.path.exists(scaler_path):
+        raise FileNotFoundError(
+            f"Scaler文件不存在: {scaler_path}\n"
+            "请先训练条件预测模型，它会生成scaler.pkl:\n"
+            "  步骤1: cd model && 设置 use_conditional=False, 运行 python train.py\n"
+            "  步骤2: cd model && 设置 use_conditional=True,  运行 python train.py\n"
+            "  步骤3: 再运行本脚本 python train_ppo.py"
+        )
     with open(scaler_path, 'rb') as f:
         scaler = pickle.load(f)
-    
-    # 创建完整特征（与data_processor.py一致）
-    df, feature_cols = create_features_for_ppo(df)
+
+    # 仅使用原始特征，不做统计/衍生工程（避免仿真失真）
+    df, feature_cols = prepare_raw_features(df)
     
     # 获取槽号到索引的映射
     all_pots = sorted(df['槽号'].unique())
@@ -205,7 +155,7 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"使用设备: {device}")
     
-    print("=" * 60)
+    print("=" * 60) 
     print("MPD-PPO 训练")
     print("=" * 60)
     
@@ -216,7 +166,11 @@ def main():
     
     # 2. 加载条件预测模型
     print("\n2. 加载条件预测模型...")
-    model_path = 'e:/ClaudeCodeWorkplace/2026-5-12-参数优化/model/output/best_conditional_model.pth'
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    PROJECT_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
+    model_path = os.path.join(PROJECT_ROOT, 'model', 'output', 'best_conditional_model.pth')
+    if not os.path.exists(model_path):
+        model_path = os.path.join(PROJECT_ROOT, 'model', 'output', 'final_conditional_model.pth')
     print(f"模型路径: {model_path}")
     
     # 获取特征数量

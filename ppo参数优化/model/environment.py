@@ -52,29 +52,18 @@ class VoltageControlEnv:
         self._actor_hidden = None
     
     def _build_feature_indices(self):
-        """构建特征列索引映射"""
+        """构建特征列索引映射（仅原始特征，无统计/衍生特征）"""
         self.feature_indices = {
-            # 原始特征索引
             'target': self.feature_cols.index('工作平均') if '工作平均' in self.feature_cols else -1,
             'alf_actual': self.feature_cols.index('ALF加料量(实际)') if 'ALF加料量(实际)' in self.feature_cols else -1,
             'out_actual': self.feature_cols.index('实际出铝量') if '实际出铝量' in self.feature_cols else -1,
-            'alf_set': self.feature_cols.index('ALF加料量(设定)') if 'ALF加料量(设定)' in self.feature_cols else -1,
-            # 目标变量统计特征索引
-            'target_mean_3d': self.feature_cols.index('工作平均_mean_3d') if '工作平均_mean_3d' in self.feature_cols else -1,
-            'target_std_3d': self.feature_cols.index('工作平均_std_3d') if '工作平均_std_3d' in self.feature_cols else -1,
-            'target_mean_7d': self.feature_cols.index('工作平均_mean_7d') if '工作平均_mean_7d' in self.feature_cols else -1,
-            'target_std_7d': self.feature_cols.index('工作平均_std_7d') if '工作平均_std_7d' in self.feature_cols else -1,
-            'target_diff_1': self.feature_cols.index('工作平均_diff_1') if '工作平均_diff_1' in self.feature_cols else -1,
-            'target_diff_7': self.feature_cols.index('工作平均_diff_7') if '工作平均_diff_7' in self.feature_cols else -1,
-            # ALF实际统计特征索引
-            'alf_mean_3d': self.feature_cols.index('ALF加料量(实际)_mean_3d') if 'ALF加料量(实际)_mean_3d' in self.feature_cols else -1,
-            'alf_std_3d': self.feature_cols.index('ALF加料量(实际)_std_3d') if 'ALF加料量(实际)_std_3d' in self.feature_cols else -1,
-            # 出铝量统计特征索引
-            'out_mean_3d': self.feature_cols.index('实际出铝量_mean_3d') if '实际出铝量_mean_3d' in self.feature_cols else -1,
-            'out_std_3d': self.feature_cols.index('实际出铝量_std_3d') if '实际出铝量_std_3d' in self.feature_cols else -1,
-            # 衍生特征索引
-            'voltage_diff': self.feature_cols.index('电压偏差') if '电压偏差' in self.feature_cols else -1,
         }
+        # 缓存非控制特征索引（在_update_state中沿用前一天值）
+        self._carryover_indices = []
+        for feat in self.feature_cols:
+            if feat not in ['工作平均', 'ALF加料量(实际)', '实际出铝量', '平均电压', '铝水平']:
+                idx = self.feature_cols.index(feat)
+                self._carryover_indices.append(idx)
     
     def _normalize_action(self, action):
         """将动作从[-1,1]范围映射到实际范围"""
@@ -108,17 +97,38 @@ class VoltageControlEnv:
         return future_actions
     
     def _predict_voltage(self, past_features, future_actions, pot_id):
-        """调用条件预测模型预测电压"""
+        """调用条件预测模型预测电压（处理标准化/反标准化）"""
         self.predictor.eval()
         with torch.no_grad():
+            # past_features标准化（与训练时一致）
             standardized_features = self.scaler.transform(past_features)
             past_tensor = torch.FloatTensor(standardized_features).unsqueeze(0).to(self.device)
-            future_actions_tensor = torch.FloatTensor(future_actions).unsqueeze(0).to(self.device)
+
+            # future_actions标准化（修复：训练时用标准化值，仿真时必须一致）
+            alf_idx = self.feature_indices['alf_actual']
+            out_idx = self.feature_indices['out_actual']
+            alf_mean = self.scaler.mean_[alf_idx]
+            alf_scale = self.scaler.scale_[alf_idx]
+            out_mean = self.scaler.mean_[out_idx]
+            out_scale = self.scaler.scale_[out_idx]
+
+            future_actions_std = future_actions.copy()
+            future_actions_std[:, 0] = (future_actions_std[:, 0] - alf_mean) / alf_scale
+            future_actions_std[:, 1] = (future_actions_std[:, 1] - out_mean) / out_scale
+            future_actions_tensor = torch.FloatTensor(future_actions_std).unsqueeze(0).to(self.device)
+
             pot_id_tensor = torch.LongTensor([pot_id]).to(self.device)
-            
+
             voltage_pred = self.predictor(past_tensor, future_actions_tensor, pot_id_tensor)
             voltage_pred = voltage_pred.cpu().numpy()[0]
-            # 钳制到物理合理范围，阻断正反馈回路导致电压指数爆炸
+
+            # 反标准化：模型输出是标准化值(μ≈0,σ≈1)，转为原始电压(V)
+            target_idx = self.feature_indices['target']
+            target_mean = self.scaler.mean_[target_idx]
+            target_scale = self.scaler.scale_[target_idx]
+            voltage_pred = voltage_pred * target_scale + target_mean
+
+            # 钳制到物理合理范围
             voltage_pred = np.clip(voltage_pred, 2.5, 6.0)
             return voltage_pred
     
@@ -185,63 +195,7 @@ class VoltageControlEnv:
 
         reward_components = {'R_acc': R_acc, 'P_smooth': smooth_penalty, 'P_bound': P_bound}
         return reward, errors[0], reward_components
-    
-    def _update_statistical_features(self, features):
-        """
-        更新统计特征（基于新的滑动窗口）
-        参数:
-            features: (7, feature_dim) 过去7天的特征
-        """
-        last_day_idx = -1
-        
-        # 更新目标变量的统计特征
-        if self.feature_indices['target'] >= 0:
-            target_vals = features[:, self.feature_indices['target']]
-            
-            # 3天均值/标准差（取最后3天）
-            if self.feature_indices['target_mean_3d'] >= 0:
-                features[last_day_idx, self.feature_indices['target_mean_3d']] = np.mean(target_vals[-3:])
-            if self.feature_indices['target_std_3d'] >= 0:
-                features[last_day_idx, self.feature_indices['target_std_3d']] = np.std(target_vals[-3:])
-            
-            # 7天均值/标准差（取全部7天）
-            if self.feature_indices['target_mean_7d'] >= 0:
-                features[last_day_idx, self.feature_indices['target_mean_7d']] = np.mean(target_vals)
-            if self.feature_indices['target_std_7d'] >= 0:
-                features[last_day_idx, self.feature_indices['target_std_7d']] = np.std(target_vals)
-            
-            # 1阶差分（与前一天的差值）
-            if self.feature_indices['target_diff_1'] >= 0 and len(target_vals) >= 2:
-                features[last_day_idx, self.feature_indices['target_diff_1']] = target_vals[-1] - target_vals[-2]
-            
-            # 7阶差分（与7天前的差值）
-            if self.feature_indices['target_diff_7'] >= 0 and len(target_vals) >= 7:
-                features[last_day_idx, self.feature_indices['target_diff_7']] = target_vals[-1] - target_vals[0]
-        
-        # 更新ALF加料量的统计特征
-        if self.feature_indices['alf_actual'] >= 0:
-            alf_vals = features[:, self.feature_indices['alf_actual']]
-            if self.feature_indices['alf_mean_3d'] >= 0:
-                features[last_day_idx, self.feature_indices['alf_mean_3d']] = np.mean(alf_vals[-3:])
-            if self.feature_indices['alf_std_3d'] >= 0:
-                features[last_day_idx, self.feature_indices['alf_std_3d']] = np.std(alf_vals[-3:])
-        
-        # 更新实际出铝量的统计特征
-        if self.feature_indices['out_actual'] >= 0:
-            out_vals = features[:, self.feature_indices['out_actual']]
-            if self.feature_indices['out_mean_3d'] >= 0:
-                features[last_day_idx, self.feature_indices['out_mean_3d']] = np.mean(out_vals[-3:])
-            if self.feature_indices['out_std_3d'] >= 0:
-                features[last_day_idx, self.feature_indices['out_std_3d']] = np.std(out_vals[-3:])
-        
-        # 更新电压偏差（衍生特征）
-        if self.feature_indices['voltage_diff'] >= 0 and self.feature_indices['target'] >= 0:
-            # 假设电压设定也在特征中
-            if '电压设定' in self.feature_cols:
-                voltage_set_idx = self.feature_cols.index('电压设定')
-                features[last_day_idx, self.feature_indices['voltage_diff']] = \
-                    features[last_day_idx, self.feature_indices['target']] - features[last_day_idx, voltage_set_idx]
-    
+
     def _update_state(self, action, voltage_pred, prev_features):
         """
         更新状态：滑动时间窗口，构造新的过去7天状态
@@ -268,35 +222,26 @@ class VoltageControlEnv:
         if self.feature_indices['out_actual'] >= 0:
             new_past_features[last_day_idx, self.feature_indices['out_actual']] = action[1]
 
-        # === 非控制特征经验更新 ===
+        # === 非控制特征处理 ===
         prev_alf = prev_features[-1, self.feature_indices['alf_actual']] if self.feature_indices['alf_actual'] >= 0 else action[0]
         prev_out = prev_features[-1, self.feature_indices['out_actual']] if self.feature_indices['out_actual'] >= 0 else action[1]
-        delta_alf = action[0] - prev_alf
         delta_out = action[1] - prev_out
 
         # 铝水平：出铝量增加 → 铝水平降低（经验关系）
         al_idx = self.feature_cols.index('铝水平') if '铝水平' in self.feature_cols else -1
         if al_idx >= 0 and prev_out > 0:
             al_change = EMPIRICAL_AL_OUT_RATIO * (delta_out / prev_out) * new_past_features[second_last_idx, al_idx]
-            new_past_features[last_day_idx, al_idx] = new_past_features[second_last_idx, al_idx] + al_change
+            new_past_features[last_day_idx, al_idx] = np.clip(
+                new_past_features[second_last_idx, al_idx] + al_change, 0, 100)
 
         # 平均电压：直接用预测电压更新，钳制防止正反馈爆炸
         avg_v_idx = self.feature_cols.index('平均电压') if '平均电压' in self.feature_cols else -1
         if avg_v_idx >= 0:
-            new_past_features[last_day_idx, avg_v_idx] = np.clip(voltage_pred[0], 2.5, 6.0)
+            new_past_features[last_day_idx, avg_v_idx] = np.clip(voltage_pred[0], 3.0, 5.0)
 
-        # 电压设定：通常不变或缓慢变化，沿用最新值
-        set_v_idx = self.feature_cols.index('电压设定') if '电压设定' in self.feature_cols else -1
-        if set_v_idx >= 0:
-            new_past_features[last_day_idx, set_v_idx] = new_past_features[second_last_idx, set_v_idx]
-
-        # 实际设定：同电压设定
-        actual_set_idx = self.feature_cols.index('实际设定') if '实际设定' in self.feature_cols else -1
-        if actual_set_idx >= 0:
-            new_past_features[last_day_idx, actual_set_idx] = new_past_features[second_last_idx, actual_set_idx]
-
-        # 更新统计特征（基于新的窗口重新计算）
-        self._update_statistical_features(new_past_features)
+        # 其余非控制特征（Fe含量、槽龄、电解质水平等）：沿用前一天值
+        for idx in self._carryover_indices:
+            new_past_features[last_day_idx, idx] = new_past_features[second_last_idx, idx]
 
         # 更新累计误差
         self.cumulative_error += abs(voltage_pred[0] - self.target_voltage[0])
@@ -404,9 +349,8 @@ class VoltageControlEnv:
 
 def load_predictor_model(model_path, num_pots, input_dim, device='cpu'):
     """
-    加载训练好的条件电压预测模型
+    加载训练好的条件电压预测模型，自动处理新旧架构不兼容。
     """
-    # 创建基础LSTM模型
     base_model = LSTMModelWithPotEmbedding(
         input_dim=input_dim,
         num_pots=num_pots,
@@ -416,8 +360,7 @@ def load_predictor_model(model_path, num_pots, input_dim, device='cpu'):
         output_len=OUTPUT_LEN,
         dropout=DROPOUT
     ).to(device)
-    
-    # 创建条件预测器
+
     predictor = ConditionalVoltagePredictor(
         base_model=base_model,
         future_action_dim=2,
@@ -426,9 +369,28 @@ def load_predictor_model(model_path, num_pots, input_dim, device='cpu'):
         hidden_dim=HIDDEN_DIM,
         dropout=DROPOUT
     ).to(device)
-    
-    # 加载模型权重
-    predictor.load_state_dict(torch.load(model_path, map_location=device))
+
+    # 加载模型权重（兼容新旧架构）
+    checkpoint = torch.load(model_path, map_location=device)
+    try:
+        predictor.load_state_dict(checkpoint)
+        print(f"   条件预测模型加载成功: {os.path.basename(model_path)}")
+    except RuntimeError as e:
+        # 架构不兼容（旧88维特征/Conv1D → 新12维/LSTM）
+        missing = [k for k in predictor.state_dict().keys()
+                   if k not in checkpoint and 'num_batches_tracked' not in k]
+        unexpected = [k for k in checkpoint.keys()
+                      if k not in predictor.state_dict()]
+        print(f"\n⚠ 条件预测模型架构不兼容，无法加载")
+        print(f"   缺失key: {missing[:4]}... (共{len(missing)}个)")
+        print(f"   多余key: {unexpected[:4]}... (共{len(unexpected)}个)")
+        print(f"   请重新训练条件预测器: cd model && python train.py (use_conditional=True)")
+        raise RuntimeError(
+            "条件预测模型与当前架构不兼容，需重新训练。\n"
+            "步骤: 1) cd model && python train.py (use_conditional=False) 训练基础LSTM\n"
+            "      2) cd model && python train.py (use_conditional=True)  训练条件预测器\n"
+            "      3) 再运行本脚本"
+        )
+
     predictor.eval()
-    
     return predictor

@@ -460,15 +460,27 @@ def main():
             dropout=DROPOUT
         ).to(device)
         
-        # 尝试加载预训练的基础模型权重（如果存在）
-        pretrained_path = os.path.join(OUTPUT_DIR, './output/best_model.pth')
+        # 加载预训练的基础模型权重
+        pretrained_path = os.path.join(OUTPUT_DIR, 'best_model.pth')
         if os.path.exists(pretrained_path):
-            print(f"\n加载预训练基础模型权重: {pretrained_path}")
-            base_model.load_state_dict(torch.load(pretrained_path))
-            # 冻结基础模型参数（可选）
-            for param in base_model.parameters():
-                param.requires_grad = False
-            print("基础模型参数已冻结")
+            try:
+                base_model.load_state_dict(torch.load(pretrained_path))
+                print(f"\n加载预训练基础模型权重: {pretrained_path}")
+                for param in base_model.parameters():
+                    param.requires_grad = True
+                print("基础模型权重已加载（差分学习率模式，基础LSTM可微调）")
+            except RuntimeError as e:
+                print(f"\n⚠ 预训练模型架构不兼容，将从头训练基础LSTM")
+                print(f"   原因: {str(e)[:120]}...")
+                print(f"   请先运行: python train.py (设置 use_conditional=False)")
+                print(f"   训练基础LSTM后再运行: python train.py (设置 use_conditional=True)")
+                # 删除不兼容的旧模型文件
+                os.remove(pretrained_path)
+                print(f"   已删除旧模型: {pretrained_path}")
+        else:
+            print(f"\n⚠ 预训练基础模型不存在于 {pretrained_path}")
+            print("   请先设置 use_conditional=False 并运行 train.py 训练基础LSTM")
+            print("   基础LSTM将以随机权重初始化，预测精度将严重受限")
         
         # 创建条件预测器
         model = ConditionalVoltagePredictor(

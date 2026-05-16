@@ -139,14 +139,15 @@ class ConditionalVoltagePredictor(nn.Module):
         self.future_len = future_len
         self.hidden_dim = hidden_dim
         
-        # 条件编码器：处理未来14天×2个动作
-        self.cond_encoder = nn.Sequential(
-            nn.Conv1d(future_action_dim, 16, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool1d(1),
-            nn.Flatten(),
-            nn.Linear(16, cond_hidden)
+        # 条件编码器：LSTM处理未来14天×2个动作，保留时序信息
+        self.cond_encoder = nn.LSTM(
+            input_size=future_action_dim,
+            hidden_size=16,
+            num_layers=1,
+            batch_first=True,
+            dropout=0
         )
+        self.cond_fc = nn.Linear(16, cond_hidden)
         
         # 合并后的预测头
         self.fc = nn.Sequential(
@@ -171,9 +172,9 @@ class ConditionalVoltagePredictor(nn.Module):
         # 获取原模型的隐藏状态
         hidden = self.base_model.get_hidden(past_features, pot_ids)  # (batch_size, hidden_dim)
         
-        # 编码未来动作序列
-        # Conv1d需要输入形状 (batch, channels, length)，所以需要permute
-        cond = self.cond_encoder(future_actions.permute(0, 2, 1))  # (batch_size, cond_hidden)
+        # 编码未来动作序列（LSTM保留时序信息）
+        cond_lstm_out, (cond_h, _) = self.cond_encoder(future_actions)  # (B,14,16), ((1,B,16),...)
+        cond = self.cond_fc(cond_h.squeeze(0))  # (batch_size, cond_hidden)
         
         # 拼接历史特征和未来动作特征
         combined = torch.cat([hidden, cond], dim=1)  # (batch_size, hidden_dim + cond_hidden)
