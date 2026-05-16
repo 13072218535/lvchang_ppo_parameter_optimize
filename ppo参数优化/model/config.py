@@ -18,8 +18,9 @@ def set_seed(seed=SEED):
     os.environ['PYTHONHASHSEED'] = str(seed)
 
 # 数据路径
-DATA_PATH = 'e:/TraeWorkplace/铝厂/2026-5-12-参数优化/槽况数据_处理后_v2.xlsx'
-OUTPUT_DIR = 'e:/TraeWorkplace/铝厂/2026-5-12-参数优化/ppo参数优化/model/output'
+DATA_PATH = r'E:\ClaudeCodeWorkplace\2026-5-12-参数优化\槽况数据_处理后_v2.xlsx'
+OUTPUT_DIR = r'E:\ClaudeCodeWorkplace\2026-5-12-参数优化\ppo参数优化\model\output'
+
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # 序列长度配置
@@ -94,7 +95,7 @@ ACTION_TRAJECTORY_DIM = 28     # 14天完整动作轨迹维度
 REWARD_ACC_WEIGHT = 10.0       # 精度奖励权重
 REWARD_ACC_KAPPA = 2.0         # 精度奖励指数衰减系数
 REWARD_PROG_WEIGHT = 0.3       # 进度奖励权重
-REWARD_SMOOTH_VIOLATION_WEIGHT = 1.0  # 平滑约束违反惩罚权重
+REWARD_SMOOTH_VIOLATION_WEIGHT = 5.0  # 平滑约束违反惩罚权重（violation已归一化到[0,1]比例空间）
 REWARD_BOUND_PENALTY = 10      # 边界惩罚值（软约束）
 
 # 多步奖励时间衰减权重（14天，逐日衰减）

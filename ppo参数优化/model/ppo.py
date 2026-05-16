@@ -18,7 +18,7 @@ class Actor(nn.Module):
     """
 
     def __init__(self, input_dim, num_pots, pot_embed_dim=POT_EMBED_DIM,
-                 hidden_dim=HIDDEN_DIM, num_layers=NUM_LAYERS, action_dim=2,
+                 hidden_dim=HIDDEN_DIM, num_layers=NUM_LAYERS, action_dim=ACTION_TRAJECTORY_DIM,
                  dropout=DROPOUT):
         super().__init__()
 
@@ -27,7 +27,7 @@ class Actor(nn.Module):
         self.pot_embed_dim = pot_embed_dim
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
-        self.action_dim = action_dim
+        self.action_dim = action_dim  # 28维（14天×2动作）
 
         self.pot_embedding = nn.Embedding(num_pots, pot_embed_dim)
         nn.init.uniform_(self.pot_embedding.weight, -0.1, 0.1)
@@ -57,15 +57,46 @@ class Actor(nn.Module):
             nn.Tanh()
         )
 
-        self.alf_mean_head = nn.Linear(hidden_dim // 2, 1)
-        self.alf_std_head = nn.Linear(hidden_dim // 2, 1)
-
-        self.out_mean_head = nn.Linear(hidden_dim // 2, 1)
-        self.out_std_head = nn.Linear(hidden_dim // 2, 1)
+        # 输出28维动作轨迹：每个维度独立均值与标准差
+        self.mean_head = nn.Linear(hidden_dim // 2, action_dim)
+        self.std_head = nn.Linear(hidden_dim // 2, action_dim)
 
         self.softplus = nn.Softplus()
 
         self._init_weights()
+
+    def load_state_dict(self, state_dict, strict=True):
+        """兼容旧版本模型（4个头→2个头）的参数名映射和形状不匹配处理"""
+        old_keys = ['alf_mean_head', 'alf_std_head', 'out_mean_head', 'out_std_head']
+        new_keys = ['mean_head', 'std_head', 'mean_head', 'std_head']
+        suffix = ['.weight', '.bias']
+
+        mapped = {}
+        for old_name, new_name in zip(old_keys, new_keys):
+            for s in suffix:
+                old_key = old_name + s
+                new_key = new_name + s
+                if old_key in state_dict and new_key not in state_dict:
+                    mapped[new_key] = state_dict.pop(old_key)
+
+        if mapped:
+            state_dict.update(mapped)
+            print(f"  已映射 {len(mapped) // 2} 组旧版参数名")
+
+        # 过滤形状不匹配的参数（如旧版输出头维度1→新版维度28）
+        current = self.state_dict()
+        skip_keys = []
+        for key in list(state_dict.keys()):
+            if key in current:
+                if state_dict[key].shape != current[key].shape:
+                    print(f"  跳过形状不匹配: {key} "
+                          f"checkpoint={tuple(state_dict[key].shape)} "
+                          f"model={tuple(current[key].shape)}")
+                    skip_keys.append(key)
+        for k in skip_keys:
+            del state_dict[k]
+
+        return super().load_state_dict(state_dict, strict=False)
 
     def _init_weights(self):
         """初始化网络权重"""
@@ -75,29 +106,27 @@ class Actor(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
-        for m in [self.alf_mean_head, self.alf_std_head, self.out_mean_head, self.out_std_head]:
+        for m in [self.mean_head, self.std_head]:
             nn.init.orthogonal_(m.weight, gain=0.01)
             if m.bias is not None:
-                nn.init.zeros_(m.bias)
+                if m is self.std_head:
+                    nn.init.constant_(m.bias, -1.0)  # 初始std≈0.31，避免过度随机
+                else:
+                    nn.init.zeros_(m.bias)
 
     def forward(self, state):
         """
         参数:
             state: (batch_size, 7*input_dim + 14 + 1) 展平的状态向量
         返回:
-            alf_mean, alf_std, out_mean, out_std
+            means: (batch_size, 28) 28维动作均值
+            stds: (batch_size, 28) 28维动作标准差
         """
         batch_size = state.shape[0]
 
         past_features = state[:, :INPUT_LEN * self.input_dim].view(batch_size, INPUT_LEN, self.input_dim)
         target_voltage = state[:, INPUT_LEN * self.input_dim:INPUT_LEN * self.input_dim + OUTPUT_LEN]
         pot_ids = state[:, -1].long()
-
-        if torch.isnan(state).any():
-            print("NaN detected in input state!")
-            print(f"state has NaN: {torch.isnan(state).sum()} NaN values")
-        if torch.isinf(state).any():
-            print("Inf detected in input state!")
 
         pot_embed = self.pot_embedding(pot_ids)
         pot_embed = pot_embed.unsqueeze(1).expand(-1, INPUT_LEN, -1)
@@ -115,55 +144,34 @@ class Actor(nn.Module):
 
         shared_out = self.shared_net(combined)
 
-        alf_mean = torch.tanh(self.alf_mean_head(shared_out))
-        alf_std = self.softplus(self.alf_std_head(shared_out)) + 1e-3
+        means = torch.tanh(self.mean_head(shared_out))
+        stds = self.softplus(self.std_head(shared_out)) + 1e-3
 
-        out_mean = torch.tanh(self.out_mean_head(shared_out))
-        out_std = self.softplus(self.out_std_head(shared_out)) + 1e-3
+        means = torch.clamp(means, -10, 10)
+        stds = torch.clamp(stds, 1e-3, 100)
 
-        alf_mean = torch.clamp(alf_mean, -10, 10)
-        alf_std = torch.clamp(alf_std, 1e-3, 100)
-        out_mean = torch.clamp(out_mean, -10, 10)
-        out_std = torch.clamp(out_std, 1e-3, 100)
-
-        if torch.isnan(alf_mean).any() or torch.isnan(alf_std).any():
-            print(f"NaN in alf_mean: {torch.isnan(alf_mean).sum()}, alf_std: {torch.isnan(alf_std).sum()}")
-            print(f"shared_out has NaN: {torch.isnan(shared_out).sum()}")
-            print(f"lstm_last has NaN: {torch.isnan(lstm_last).sum()}")
-
-        return alf_mean, alf_std, out_mean, out_std
+        return means, stds
 
     def sample_action(self, state):
         """
-        采样动作
+        采样动作（环境交互用，无梯度）
         参数:
             state: (batch_size, state_dim) 或 (state_dim,)
         返回:
-            action: (batch_size, 2) 或 (2,) 归一化到[-1,1]
-            log_prob: (batch_size, 2) 两个动作分量的对数概率
+            action: (batch_size, 28) 或 (28,) 归一化到[-1,1]
+            log_prob: (batch_size, 28) 28个维度的对数概率
         """
         if len(state.shape) == 1:
             state = state.unsqueeze(0)
 
         self.eval()
         with torch.no_grad():
-            alf_mean, alf_std, out_mean, out_std = self.forward(state)
+            means, stds = self.forward(state)
 
-            alf_dist = Normal(alf_mean, alf_std)
-            out_dist = Normal(out_mean, out_std)
-
-            alf_action = alf_dist.sample()
-            out_action = out_dist.sample()
-
-            alf_action = torch.clamp(alf_action, -1, 1)
-            out_action = torch.clamp(out_action, -1, 1)
-
-            alf_log_prob = alf_dist.log_prob(alf_action)
-            out_log_prob = out_dist.log_prob(out_action)
-
-            log_prob = torch.cat([alf_log_prob, out_log_prob], dim=1)
-
-            action = torch.cat([alf_action, out_action], dim=1)
+            dist = Normal(means, stds)
+            action = dist.sample()
+            action = torch.clamp(action, -1, 1)
+            log_prob = dist.log_prob(action)
 
         self.train()
 
@@ -171,24 +179,19 @@ class Actor(nn.Module):
 
     def get_log_prob(self, state, action):
         """
-        计算给定状态和动作的对数概率
+        计算给定状态和动作的对数概率（更新用，有梯度）
         """
         if len(state.shape) == 1:
             state = state.unsqueeze(0)
         if len(action.shape) == 1:
             action = action.unsqueeze(0)
 
-        alf_mean, alf_std, out_mean, out_std = self.forward(state)
+        means, stds = self.forward(state)
 
-        alf_dist = Normal(alf_mean, alf_std)
-        out_dist = Normal(out_mean, out_std)
+        dist = Normal(means, stds)
+        log_prob = dist.log_prob(action)
 
-        alf_log_prob = alf_dist.log_prob(action[:, 0:1])
-        out_log_prob = out_dist.log_prob(action[:, 1:2])
-
-        log_prob = torch.cat([alf_log_prob, out_log_prob], dim=1)
-
-        return log_prob.squeeze(1)
+        return log_prob
 
 
 class Critic(nn.Module):
@@ -275,7 +278,7 @@ class Critic(nn.Module):
         combined = torch.cat([lstm_last, target_voltage, pot_embed_last], dim=1)
 
         value = self.net(combined)
-        value = torch.clamp(value, -1000, 1000)
+        value = torch.clamp(value, -50, 50)
 
         return value
 
@@ -286,7 +289,7 @@ class MPDPPO:
     支持差异化裁剪阈值
     """
 
-    def __init__(self, input_dim, num_pots, action_dim=2, device='cpu'):
+    def __init__(self, input_dim, num_pots, action_dim=ACTION_TRAJECTORY_DIM, device='cpu'):
         self.input_dim = input_dim
         self.num_pots = num_pots
         self.action_dim = action_dim
@@ -326,15 +329,15 @@ class MPDPPO:
         self.log_probs = []
         self.next_states = []
         self.dones = []
-    
+
     def select_action(self, state):
         """
         选择动作
         参数:
             state: (state_dim,) numpy数组
         返回:
-            action: (2,) numpy数组，归一化到[-1,1]
-            log_prob: (2,) numpy数组，两个动作分量的对数概率
+            action: (28,) numpy数组，归一化到[-1,1]
+            log_prob: (28,) numpy数组，各维度对数概率
         """
         state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         action, log_prob = self.actor.sample_action(state_tensor)
@@ -367,7 +370,11 @@ class MPDPPO:
         dones = np.array(dones, dtype=np.float64)
         rewards = np.array(self.rewards, dtype=np.float64)
 
-        rewards = np.clip(rewards, -1e3, 1e3)
+        # 对rewards做标准化（而非硬裁剪），保留相对好坏信号
+        rewards_mean = rewards.mean()
+        rewards_std = rewards.std()
+        if rewards_std > 1e-8:
+            rewards = (rewards - rewards_mean) / (rewards_std + 1e-8)
 
         for i in reversed(range(len(rewards))):
             delta = rewards[i] + self.gamma * next_values[i] * (1 - dones[i]) - values[i]
@@ -375,22 +382,31 @@ class MPDPPO:
             advantages.insert(0, gae)
 
         advantages = np.array(advantages, dtype=np.float64)
-        advantages = np.clip(advantages, -1e3, 1e3)
 
         advantages_mean = advantages.mean()
         advantages_std = advantages.std()
 
         if np.isnan(advantages_mean) or np.isnan(advantages_std) or advantages_std < 1e-8:
-            print(f"Invalid advantages stats: mean={advantages_mean}, std={advantages_std}")
-            return np.zeros_like(advantages)
+            print(f"Warning: GAE collapsed (mean={advantages_mean:.2f}, std={advantages_std:.6f}), "
+                  f"using TD-errors instead")
+            deltas = []
+            for i in range(len(rewards)):
+                delta = rewards[i] + self.gamma * next_values[i] * (1 - dones[i]) - values[i]
+                deltas.append(delta)
+            advantages = np.array(deltas, dtype=np.float64)
+            advantages_mean = advantages.mean()
+            advantages_std = advantages.std()
+            if advantages_std < 1e-8:
+                print("   TD-errors also collapsed, skipping update")
+                return None
 
         advantages = (advantages - advantages_mean) / (advantages_std + 1e-8)
 
         return advantages
     
-    def update(self, ppo_epochs=10):
+    def update(self, ppo_epochs=PPO_INNER_EPOCHS):
         """
-        更新PPO网络
+        更新PPO网络（独立裁剪+求和，mini-batch支持）
         """
         if len(self.states) == 0:
             return 0.0, 0.0
@@ -417,6 +433,11 @@ class MPDPPO:
 
         advantages = self.compute_gae(values, next_values, dones_np)
 
+        if advantages is None:
+            print("GAE returned None (collapsed), skipping update")
+            self._clear_buffers()
+            return 0.0, 0.0
+
         if np.isnan(advantages).any():
             print("NaN detected in advantages, skipping update")
             self._clear_buffers()
@@ -430,108 +451,108 @@ class MPDPPO:
             self._clear_buffers()
             return 0.0, 0.0
 
-        actor_loss_sum = 0
-        critic_loss_sum = 0
+        # 构建mini-batch索引
+        dataset_size = len(states)
+        indices = np.arange(dataset_size)
+        mini_batch_size = min(PPO_MINI_BATCH_SIZE, dataset_size)
+
+        actor_loss_sum = 0.0
+        critic_loss_sum = 0.0
+        update_count = 0
 
         for _ in range(ppo_epochs):
-            self.actor_optimizer.zero_grad()
-            self.critic_optimizer.zero_grad()
+            np.random.shuffle(indices)
 
-            alf_mean, alf_std, out_mean, out_std = self.actor(states)
+            for start in range(0, dataset_size, mini_batch_size):
+                mb_indices = indices[start:start + mini_batch_size]
+                mb_states = states[mb_indices]
+                mb_actions = actions[mb_indices]
+                mb_old_log_probs = old_log_probs[mb_indices]
+                mb_advantages = advantages[mb_indices]
+                mb_targets = targets[mb_indices]
 
-            if torch.isnan(alf_mean).any() or torch.isnan(alf_std).any():
-                print(f"NaN in actor output at iteration {_}")
-                print(f"  alf_mean has nan: {torch.isnan(alf_mean).sum()}, inf: {torch.isinf(alf_mean).sum()}")
-                print(f"  alf_std has nan: {torch.isnan(alf_std).sum()}, inf: {torch.isinf(alf_std).sum()}")
-                print(f"  out_mean has nan: {torch.isnan(out_mean).sum()}, inf: {torch.isinf(out_mean).sum()}")
-                print(f"  out_std has nan: {torch.isnan(out_std).sum()}, inf: {torch.isinf(out_std).sum()}")
-                print(f"  states has nan: {torch.isnan(states).sum()}, inf: {torch.isinf(states).sum()}")
-                self._clear_buffers()
-                return 0.0, 0.0
+                self.actor_optimizer.zero_grad()
+                self.critic_optimizer.zero_grad()
 
-            alf_dist = Normal(alf_mean, alf_std)
-            out_dist = Normal(out_mean, out_std)
+                means, stds = self.actor(mb_states)
 
-            new_alf_log_prob = alf_dist.log_prob(actions[:, 0:1])
-            new_out_log_prob = out_dist.log_prob(actions[:, 1:2])
+                if torch.isnan(means).any() or torch.isnan(stds).any():
+                    continue
 
-            if torch.isnan(new_alf_log_prob).any() or torch.isnan(new_out_log_prob).any():
-                print(f"NaN in log_prob!")
-                print(f"  new_alf_log_prob has nan: {torch.isnan(new_alf_log_prob).sum()}")
-                print(f"  new_out_log_prob has nan: {torch.isnan(new_out_log_prob).sum()}")
-                self._clear_buffers()
-                return 0.0, 0.0
+                dist = Normal(means, stds)
+                new_log_probs = dist.log_prob(mb_actions)
 
-            new_log_probs = new_alf_log_prob + new_out_log_prob
-            old_log_probs_sum = old_log_probs.sum(dim=1, keepdim=True)
+                if torch.isnan(new_log_probs).any():
+                    continue
 
-            log_ratio = new_log_probs - old_log_probs_sum.detach()
-            log_ratio = torch.clamp(log_ratio, -100, 100)
-            ratio = torch.exp(log_ratio)
+                # === 独立裁剪 + 求和 ===
+                # 偶数索引(0,2,4,...,26)：ALF维度，使用eps_clip_alf=0.1
+                # 奇数索引(1,3,5,...,27)：OUT维度，使用eps_clip_out=0.2
+                alf_indices = list(range(0, self.action_dim, 2))
+                out_indices = list(range(1, self.action_dim, 2))
 
-            ratio = torch.where(torch.isfinite(ratio), ratio, torch.ones_like(ratio))
+                # ALF ratio + clipped
+                alf_log_ratio = new_log_probs[:, alf_indices] - mb_old_log_probs[:, alf_indices].detach()
+                alf_log_ratio = torch.clamp(alf_log_ratio, -100, 100)
+                alf_ratio = torch.exp(alf_log_ratio)
+                alf_ratio = torch.where(torch.isfinite(alf_ratio), alf_ratio, torch.ones_like(alf_ratio))
+                clipped_alf_ratio = torch.clamp(alf_ratio, 1 - self.eps_clip_alf, 1 + self.eps_clip_alf)
 
-            alf_ratio = torch.exp(torch.clamp(new_alf_log_prob - old_log_probs[:, :1].detach(), -100, 100))
-            alf_ratio = torch.where(torch.isfinite(alf_ratio), alf_ratio, torch.ones_like(alf_ratio))
-            clipped_alf_ratio = torch.clamp(alf_ratio, 1 - self.eps_clip_alf, 1 + self.eps_clip_alf)
+                # OUT ratio + clipped
+                out_log_ratio = new_log_probs[:, out_indices] - mb_old_log_probs[:, out_indices].detach()
+                out_log_ratio = torch.clamp(out_log_ratio, -100, 100)
+                out_ratio = torch.exp(out_log_ratio)
+                out_ratio = torch.where(torch.isfinite(out_ratio), out_ratio, torch.ones_like(out_ratio))
+                clipped_out_ratio = torch.clamp(out_ratio, 1 - self.eps_clip_out, 1 + self.eps_clip_out)
 
-            out_ratio = torch.exp(torch.clamp(new_out_log_prob - old_log_probs[:, 1:].detach(), -100, 100))
-            out_ratio = torch.where(torch.isfinite(out_ratio), out_ratio, torch.ones_like(out_ratio))
-            clipped_out_ratio = torch.clamp(out_ratio, 1 - self.eps_clip_out, 1 + self.eps_clip_out)
+                mb_adv = mb_advantages.unsqueeze(1)
+                mb_adv = torch.clamp(mb_adv, -1e3, 1e3)
 
-            clipped_ratio = clipped_alf_ratio * clipped_out_ratio
+                # ALF surrogate loss（独立均值）
+                alf_surr1 = alf_ratio * mb_adv
+                alf_surr2 = clipped_alf_ratio * mb_adv
+                alf_surr = torch.min(alf_surr1, alf_surr2).mean()
 
-            ratio_safe = torch.clamp(ratio, 0.0, 1e3)
-            advantages_tensor = advantages.unsqueeze(1)
+                # OUT surrogate loss（独立均值）
+                out_surr1 = out_ratio * mb_adv
+                out_surr2 = clipped_out_ratio * mb_adv
+                out_surr = torch.min(out_surr1, out_surr2).mean()
 
-            advantages_safe = torch.clamp(advantages_tensor, -1e3, 1e3)
+                # 求和：Actor loss = -(alf_surr + out_surr)
+                actor_loss = -(alf_surr + out_surr)
 
-            surr1 = ratio_safe * advantages_safe
-            surr2 = clipped_ratio * advantages_safe
+                if torch.isnan(actor_loss) or torch.isinf(actor_loss):
+                    continue
 
-            surr1_safe = torch.clamp(surr1, -1e6, 1e6)
-            surr2_safe = torch.clamp(surr2, -1e6, 1e6)
+                actor_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
+                self.actor_optimizer.step()
 
-            min_surr = torch.min(surr1_safe, surr2_safe)
-            neg_min_surr = -min_surr
+                # Critic loss
+                current_values = self.critic(mb_states)
+                current_values = torch.where(torch.isfinite(current_values), current_values, torch.zeros_like(current_values))
+                mb_targets_safe = torch.where(
+                    torch.isfinite(mb_targets.unsqueeze(1)),
+                    mb_targets.unsqueeze(1),
+                    torch.zeros_like(mb_targets.unsqueeze(1))
+                )
+                critic_loss = nn.MSELoss()(current_values, mb_targets_safe)
 
-            if min_surr.numel() == 0:
-                print(f"ERROR: min_surr is empty! surr1 shape: {surr1.shape}, surr2 shape: {surr2.shape}")
-                actor_loss_sum += 0.0
-                continue
+                if torch.isnan(critic_loss) or torch.isinf(critic_loss):
+                    continue
 
-            actor_loss = neg_min_surr.mean()
+                critic_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
+                self.critic_optimizer.step()
 
-            if torch.isnan(actor_loss) or torch.isinf(actor_loss):
-                print(f"actor_loss={actor_loss}")
-                actor_loss_sum += 0.0
-                continue
-
-            actor_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
-            self.actor_optimizer.step()
-
-            current_values = self.critic(states)
-            current_values = torch.where(torch.isfinite(current_values), current_values, torch.zeros_like(current_values))
-            targets_safe = torch.where(torch.isfinite(targets.unsqueeze(1)), targets.unsqueeze(1), torch.zeros_like(targets.unsqueeze(1)))
-            critic_loss = nn.MSELoss()(current_values, targets_safe)
-
-            if torch.isnan(critic_loss) or torch.isinf(critic_loss):
-                print(f"Warning: critic_loss is {critic_loss}, using 0 loss")
-                critic_loss_sum += 0.0
-                continue
-
-            critic_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
-            self.critic_optimizer.step()
-
-            actor_loss_sum += actor_loss.item()
-            critic_loss_sum += critic_loss.item()
+                actor_loss_sum += actor_loss.item()
+                critic_loss_sum += critic_loss.item()
+                update_count += 1
 
         self._clear_buffers()
 
-        avg_actor_loss = actor_loss_sum / ppo_epochs if ppo_epochs > 0 else 0.0
-        avg_critic_loss = critic_loss_sum / ppo_epochs if ppo_epochs > 0 else 0.0
+        avg_actor_loss = actor_loss_sum / max(update_count, 1)
+        avg_critic_loss = critic_loss_sum / max(update_count, 1)
 
         return avg_actor_loss, avg_critic_loss
 
@@ -555,12 +576,36 @@ class MPDPPO:
             'critic_optimizer_state_dict': self.critic_optimizer.state_dict()
         }, path)
     
-    def load_model(self, path):
+    def load_model(self, path, load_optimizer=False):
         """
         加载模型
+        参数:
+            path: 模型文件路径
+            load_optimizer: 是否加载优化器状态（默认False，评估时不需要）
         """
         checkpoint = torch.load(path, map_location=self.device)
-        self.actor.load_state_dict(checkpoint['actor_state_dict'])
-        self.critic.load_state_dict(checkpoint['critic_state_dict'])
-        self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer_state_dict'])
-        self.critic_optimizer.load_state_dict(checkpoint['critic_optimizer_state_dict'])
+
+        # 加载Actor权重（含旧版兼容映射）
+        missing, unexpected = self.actor.load_state_dict(checkpoint['actor_state_dict'], strict=False)
+        if missing:
+            print(f"  Actor missing keys (expected for old model): {missing}")
+        if unexpected:
+            # 检查是否包含旧版参数名（已在load_state_dict中处理）
+            old_heads = ['alf_mean_head', 'alf_std_head', 'out_mean_head', 'out_std_head']
+            remaining = [k for k in unexpected if not any(h in k for h in old_heads)]
+            if remaining:
+                print(f"  Actor unexpected keys: {remaining}")
+
+        # 加载Critic权重
+        self.critic.load_state_dict(checkpoint['critic_state_dict'], strict=False)
+
+        # 可选加载优化器
+        if load_optimizer and 'actor_optimizer_state_dict' in checkpoint:
+            try:
+                self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer_state_dict'])
+            except Exception as e:
+                print(f"  跳过优化器加载: {e}")
+            try:
+                self.critic_optimizer.load_state_dict(checkpoint['critic_optimizer_state_dict'])
+            except Exception as e:
+                print(f"  跳过优化器加载: {e}")

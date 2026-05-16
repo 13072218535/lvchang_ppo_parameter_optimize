@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python visualize_ppo.py)",
+      "Bash(python3 visualize_ppo.py)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('ppo参数优化/model/visualize_ppo.py', encoding='utf-8'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")"
+    ]
+  }
+}

@@ -110,7 +110,7 @@ def load_data_for_ppo(data_path):
     df = df.sort_values(['槽号', '日期']).reset_index(drop=True)
     
     # 加载scaler（来自条件预测模型训练）
-    scaler_path = 'e:/TraeWorkplace/铝厂/2026-5-12-参数优化/model/output/scaler.pkl'
+    scaler_path = 'e:/ClaudeCodeWorkplace/2026-5-12-参数优化/model/output/scaler.pkl'
     with open(scaler_path, 'rb') as f:
         scaler = pickle.load(f)
     
@@ -132,18 +132,19 @@ def load_data_for_ppo(data_path):
             continue
         
         pot_features = pot_data[feature_cols].values
-        pot_targets = pot_data[TARGET].values
-        
+        # 目标电压改为设定电压（实际设定），而非历史工作电压
+        pot_set_voltages = pot_data['实际设定'].values if '实际设定' in pot_data.columns else pot_data[TARGET].values
+
         # 创建滑动窗口样本
         for i in range(len(pot_data) - INPUT_LEN - OUTPUT_LEN + 1):
             past_features = pot_features[i:i + INPUT_LEN]
-            target_voltage = pot_targets[i + INPUT_LEN:i + INPUT_LEN + OUTPUT_LEN]
-            
+            target_voltage = pot_set_voltages[i + INPUT_LEN:i + INPUT_LEN + OUTPUT_LEN]
+
             samples.append({
                 'past_features': past_features,
                 'target_voltage': target_voltage,
-                'pot_id': pot_to_idx[pot_id],  # 使用槽号索引
-                'pot_num': pot_id  # 原始槽号
+                'pot_id': pot_to_idx[pot_id],
+                'pot_num': pot_id
             })
     
     print(f"特征列数量: {len(feature_cols)}")
@@ -160,29 +161,40 @@ def run_episode(env, ppo_agent, sample, max_steps=MAX_EPISODE_STEPS):
     state = env.reset(sample['past_features'], sample['target_voltage'], sample['pot_id'])
     
     total_reward = 0.0
+    total_R_acc = 0.0
+    total_P_smooth = 0.0
+    total_P_bound = 0.0
     episode_data = []
-    
+
     for step in range(max_steps):
         # 选择动作
         action, log_prob = ppo_agent.select_action(state)
-        
+
         # 执行动作
         next_state, reward, done, info = env.step(action)
-        
+
         # 存储经验
         ppo_agent.store_transition(state, action, reward, log_prob, next_state, done)
-        
+
         # 更新状态
         state = next_state
         total_reward += reward
-        
+        total_R_acc += info.get('R_acc', 0)
+        total_P_smooth += info.get('P_smooth', 0)
+        total_P_bound += info.get('P_bound', 0)
+
         # 记录数据
         episode_data.append(info)
-        
+
         if done:
             break
-    
-    return total_reward, episode_data
+
+    reward_components = {
+        'R_acc': total_R_acc,
+        'P_smooth': total_P_smooth,
+        'P_bound': total_P_bound,
+    }
+    return total_reward, episode_data, reward_components
 
 
 def main():
@@ -204,7 +216,7 @@ def main():
     
     # 2. 加载条件预测模型
     print("\n2. 加载条件预测模型...")
-    model_path = 'e:/TraeWorkplace/铝厂/2026-5-12-参数优化/model/output/best_conditional_model.pth'
+    model_path = 'e:/ClaudeCodeWorkplace/2026-5-12-参数优化/model/output/best_conditional_model.pth'
     print(f"模型路径: {model_path}")
     
     # 获取特征数量
@@ -226,62 +238,59 @@ def main():
     print(f"动作维度: {env.get_action_dim()}")
     print(f"槽数量: {num_pots}")
     
-    # 4. 初始化PPO代理
+    # 4. 初始化PPO代理（使用轨迹维度 ACTION_TRAJECTORY_DIM=28）
     print("\n4. 初始化PPO代理...")
-    ppo_agent = MPDPPO(input_dim, num_pots, env.get_action_dim(), device)
+    print(f"   动作空间: {ACTION_TRAJECTORY_DIM}维 (14天×2动作轨迹)")
+    ppo_agent = MPDPPO(input_dim, num_pots, ACTION_TRAJECTORY_DIM, device)
     print("PPO代理初始化完成")
-    
+
     # 5. 训练循环
     print("\n5. 开始训练...")
     print("=" * 60)
-    
+
     best_reward = float('-inf')
     total_steps = 0
-    
+
     for epoch in range(PPO_EPOCHS):
         epoch_reward = 0.0
+        epoch_R_acc = 0.0
+        epoch_P_smooth = 0.0
+        epoch_P_bound = 0.0
         num_episodes = 0
 
-        while total_steps < PPO_BATCH_SIZE:
+        while total_steps < PPO_STEPS_PER_UPDATE:
             sample = train_samples[np.random.randint(len(train_samples))]
 
-            reward, episode_data = run_episode(env, ppo_agent, sample)
+            reward, episode_data, reward_components = run_episode(env, ppo_agent, sample)
 
             epoch_reward += reward
+            epoch_R_acc += reward_components['R_acc']
+            epoch_P_smooth += reward_components['P_smooth']
+            epoch_P_bound += reward_components['P_bound']
             num_episodes += 1
             total_steps += len(episode_data)
 
-            if len(ppo_agent.states) > 0 and (epoch + 1) % 1 == 0:
-                last_state = ppo_agent.states[-1]
-                if np.any(np.isnan(last_state)) or np.any(np.isinf(last_state)):
-                    print(f"Warning: NaN/Inf detected in stored states at epoch {epoch + 1}")
-                    print(f"  last state: {last_state[:5]}... (showing first 5 elements)")
-                    print(f"  stored states count: {len(ppo_agent.states)}")
-                    print(f"  stored rewards count: {len(ppo_agent.rewards)}")
-                    print(f"  stored log_probs count: {len(ppo_agent.log_probs)}")
-        
         # 更新PPO网络
         actor_loss, critic_loss = ppo_agent.update()
 
         # 计算平均奖励
         avg_reward = epoch_reward / num_episodes if num_episodes > 0 else 0
+        avg_R_acc = epoch_R_acc / num_episodes if num_episodes > 0 else 0
+        avg_P_smooth = epoch_P_smooth / num_episodes if num_episodes > 0 else 0
+        avg_P_bound = epoch_P_bound / num_episodes if num_episodes > 0 else 0
 
         # 保存最佳模型
         if avg_reward > best_reward:
             best_reward = avg_reward
             ppo_agent.save_model(os.path.join(OUTPUT_DIR, 'best_ppo_model.pth'))
 
-        # 定期保存模型
-        if (epoch + 1) % SAVE_INTERVAL == 0:
-            ppo_agent.save_model(os.path.join(OUTPUT_DIR, f'ppo_model_epoch_{epoch + 1}.pth'))
-
         # 打印日志
         if (epoch + 1) % LOG_INTERVAL == 0 or epoch == 0:
             print(f"Epoch [{epoch + 1:04d}/{PPO_EPOCHS}] "
-                  f"Avg Reward: {avg_reward:.4f} "
-                  f"Best Reward: {best_reward:.4f} "
-                  f"Actor Loss: {actor_loss:.6f} "
-                  f"Critic Loss: {critic_loss:.6f}")
+                  f"Reward: {avg_reward:.2f} (R_acc={avg_R_acc:.2f} "
+                  f"P_sm={avg_P_smooth:.2f} P_bd={avg_P_bound:.2f}) "
+                  f"Best: {best_reward:.2f} "
+                  f"Actor: {actor_loss:.5f} Critic: {critic_loss:.4f}")
 
         # 重置步数计数
         total_steps = 0
