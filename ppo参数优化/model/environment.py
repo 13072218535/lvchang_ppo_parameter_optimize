@@ -48,8 +48,11 @@ class VoltageControlEnv:
         self.pot_id = None
         self.last_action = None
         self.cumulative_error = 0.0
+        self._smooth_weight = REWARD_SMOOTH_VIOLATION_WEIGHT  # 初始默认值
 
-        self._actor_hidden = None
+    def set_smoothness_weight(self, weight):
+        """改进3：动态调整平滑惩罚权重（off-policy课程学习用）"""
+        self._smooth_weight = weight
     
     def _build_feature_indices(self):
         """构建特征列索引映射（仅原始特征，无统计/衍生特征）"""
@@ -150,6 +153,7 @@ class VoltageControlEnv:
         )
 
         # 平滑惩罚（检查相邻天动作变化，归一化到比例空间）
+        # 极端违反：|Δ| > 2×上限时施加额外乘数，防止Agent牺牲平滑换取微小精度提升
         alf_range = self.alf_max - self.alf_min
         out_range = self.out_max - self.out_min
         smooth_penalty = 0.0
@@ -159,9 +163,15 @@ class VoltageControlEnv:
             alf_violation = max(0, alf_diff - self.alf_max_change) / alf_range
             out_violation = max(0, out_diff - self.out_max_change) / out_range
             if alf_violation > 0:
-                smooth_penalty -= REWARD_SMOOTH_VIOLATION_WEIGHT * alf_violation
+                penalty = self._smooth_weight * alf_violation
+                if alf_diff > 2 * self.alf_max_change:
+                    penalty *= REWARD_SMOOTH_EXTREME_MULTIPLIER
+                smooth_penalty -= penalty
             if out_violation > 0:
-                smooth_penalty -= REWARD_SMOOTH_VIOLATION_WEIGHT * out_violation
+                penalty = self._smooth_weight * out_violation
+                if out_diff > 2 * self.out_max_change:
+                    penalty *= REWARD_SMOOTH_EXTREME_MULTIPLIER
+                smooth_penalty -= penalty
         # 加上与上一步最后动作的平滑约束（如果存在）
         if self.last_action is not None:
             alf_diff = abs(action_trajectory[0, 0] - self.last_action[0])
@@ -169,24 +179,38 @@ class VoltageControlEnv:
             alf_violation = max(0, alf_diff - self.alf_max_change) / alf_range
             out_violation = max(0, out_diff - self.out_max_change) / out_range
             if alf_violation > 0:
-                smooth_penalty -= REWARD_SMOOTH_VIOLATION_WEIGHT * alf_violation
+                penalty = self._smooth_weight * alf_violation
+                if alf_diff > 2 * self.alf_max_change:
+                    penalty *= REWARD_SMOOTH_EXTREME_MULTIPLIER
+                smooth_penalty -= penalty
             if out_violation > 0:
-                smooth_penalty -= REWARD_SMOOTH_VIOLATION_WEIGHT * out_violation
+                penalty = self._smooth_weight * out_violation
+                if out_diff > 2 * self.out_max_change:
+                    penalty *= REWARD_SMOOTH_EXTREME_MULTIPLIER
+                smooth_penalty -= penalty
 
-        # 边界惩罚
+        # 边界接近惩罚（替代旧的≥/≤边界检查，改为接近边界即惩罚）
+        # 动作进入[min, min+margin*range]或[max-margin*range, max]时线性惩罚
+        # 越靠近边界惩罚越大，在边界处达到-REWARD_BOUND_PENALTY
         P_bound = 0.0
-        alf_range = self.alf_max - self.alf_min
-        out_range = self.out_max - self.out_min
+        alf_margin = REWARD_BOUND_MARGIN * alf_range
+        out_margin = REWARD_BOUND_MARGIN * out_range
         for i in range(len(action_trajectory)):
             a = action_trajectory[i]
-            if a[0] <= self.alf_min:
-                P_bound -= REWARD_BOUND_PENALTY * ((self.alf_min - a[0]) / alf_range)
-            elif a[0] >= self.alf_max:
-                P_bound -= REWARD_BOUND_PENALTY * ((a[0] - self.alf_max) / alf_range)
-            if a[1] <= self.out_min:
-                P_bound -= REWARD_BOUND_PENALTY * ((self.out_min - a[1]) / out_range)
-            elif a[1] >= self.out_max:
-                P_bound -= REWARD_BOUND_PENALTY * ((a[1] - self.out_max) / out_range)
+            # ALF边界接近惩罚
+            if a[0] < self.alf_min + alf_margin:
+                ratio = (self.alf_min + alf_margin - a[0]) / alf_margin
+                P_bound -= REWARD_BOUND_PENALTY * ratio
+            elif a[0] > self.alf_max - alf_margin:
+                ratio = (a[0] - (self.alf_max - alf_margin)) / alf_margin
+                P_bound -= REWARD_BOUND_PENALTY * ratio
+            # OUT边界接近惩罚
+            if a[1] < self.out_min + out_margin:
+                ratio = (self.out_min + out_margin - a[1]) / out_margin
+                P_bound -= REWARD_BOUND_PENALTY * ratio
+            elif a[1] > self.out_max - out_margin:
+                ratio = (a[1] - (self.out_max - out_margin)) / out_margin
+                P_bound -= REWARD_BOUND_PENALTY * ratio
 
         reward = R_acc + smooth_penalty + P_bound
 
@@ -196,12 +220,13 @@ class VoltageControlEnv:
         reward_components = {'R_acc': R_acc, 'P_smooth': smooth_penalty, 'P_bound': P_bound}
         return reward, errors[0], reward_components
 
-    def _update_state(self, action, voltage_pred, prev_features):
+    def _update_state(self, future_actions_full, voltage_pred, prev_features):
         """
-        更新状态：滑动时间窗口，构造新的过去7天状态
-        包含非控制特征的经验更新规则
+        更新状态：滑动时间窗口，构造新的过去7天状态。
+        修复违反3：用14天加权动作替代仅day-1动作，使s'编码完整计划信息。
+
         参数:
-            action: [alf, out] 当前执行的动作（未归一化）
+            future_actions_full: (14, 2) 完整14天动作轨迹（未归一化）
             voltage_pred: 预测的电压序列（完整14天）
             prev_features: 更新前的特征窗口 (7, feature_dim)
         """
@@ -216,16 +241,24 @@ class VoltageControlEnv:
         if self.feature_indices['target'] >= 0:
             new_past_features[last_day_idx, self.feature_indices['target']] = np.clip(voltage_pred[0], 2.5, 6.0)
 
-        # 更新控制变量
-        if self.feature_indices['alf_actual'] >= 0:
-            new_past_features[last_day_idx, self.feature_indices['alf_actual']] = action[0]
-        if self.feature_indices['out_actual'] >= 0:
-            new_past_features[last_day_idx, self.feature_indices['out_actual']] = action[1]
+        # 修复C：14天加权动作更新控制变量
+        # 权重与reward时间衰减一致，day-1权重最高，编码"意图"信息到状态
+        time_w = np.array(REWARD_TIME_WEIGHTS, dtype=np.float64)
+        w_sum = np.sum(time_w)
+        weighted_alf = np.sum(time_w * future_actions_full[:, 0]) / w_sum
+        weighted_out = np.sum(time_w * future_actions_full[:, 1]) / w_sum
 
-        # === 非控制特征处理 ===
-        prev_alf = prev_features[-1, self.feature_indices['alf_actual']] if self.feature_indices['alf_actual'] >= 0 else action[0]
-        prev_out = prev_features[-1, self.feature_indices['out_actual']] if self.feature_indices['out_actual'] >= 0 else action[1]
-        delta_out = action[1] - prev_out
+        if self.feature_indices['alf_actual'] >= 0:
+            new_past_features[last_day_idx, self.feature_indices['alf_actual']] = weighted_alf
+        if self.feature_indices['out_actual'] >= 0:
+            new_past_features[last_day_idx, self.feature_indices['out_actual']] = weighted_out
+
+        day1_action = future_actions_full[0]  # day-1用于经验更新公式
+
+        # === 非控制特征处理（基于day-1动作的经验公式）===
+        prev_alf = prev_features[-1, self.feature_indices['alf_actual']] if self.feature_indices['alf_actual'] >= 0 else day1_action[0]
+        prev_out = prev_features[-1, self.feature_indices['out_actual']] if self.feature_indices['out_actual'] >= 0 else day1_action[1]
+        delta_out = day1_action[1] - prev_out
 
         # 铝水平：出铝量增加 → 铝水平降低（经验关系）
         al_idx = self.feature_cols.index('铝水平') if '铝水平' in self.feature_cols else -1
@@ -273,9 +306,16 @@ class VoltageControlEnv:
         return self._get_state()
     
     def _get_state(self):
-        """获取当前状态向量 - 包含完整7天历史窗口"""
+        """
+        获取当前状态向量（满足马尔可夫性）
+        包含: 7天历史窗口 + 目标电压 + 上次动作 + 累积误差 + 槽号
+        """
         past_features_flat = self.past_features.flatten()
-        state = np.concatenate([past_features_flat, self.target_voltage, [self.pot_id]])
+        # last_action编码跨episode平滑约束所需信息（修复违反1）
+        last_act = np.zeros(2, dtype=np.float32) if self.last_action is None else self.last_action.astype(np.float32)
+        # cumulative_error编码终止条件（修复违反2）
+        cum_err = np.array([self.cumulative_error / max(MAX_CUMULATIVE_ERROR, 1e-6)], dtype=np.float32)
+        state = np.concatenate([past_features_flat, self.target_voltage, last_act, cum_err, [self.pot_id]])
         return state
     
     def step(self, action_trajectory):
@@ -307,7 +347,8 @@ class VoltageControlEnv:
 
         prev_features = self.past_features.copy()
         day1_action = future_actions_denorm[0]
-        self.past_features = self._update_state(day1_action, voltage_pred, prev_features)
+        # 修复C：传递完整14天轨迹给_update_state
+        self.past_features = self._update_state(future_actions_denorm, voltage_pred, prev_features)
 
         self.current_step += 1
 

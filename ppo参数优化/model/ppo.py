@@ -1,10 +1,12 @@
 """
 MPD-PPO算法实现
 多分支Actor、Critic、差异化裁剪
+改进版：轨迹平滑正则 + 时间加权Advantage + 熵退火
 """
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Normal
 
@@ -323,12 +325,19 @@ class MPDPPO:
         self.gamma = PPO_GAMMA
         self.lamda = PPO_LAMBDA
 
+        # 改进3：熵退火系数
+        self.entropy_coef = ENTROPY_COEF_START
+
         self.states = []
         self.actions = []
         self.rewards = []
         self.log_probs = []
         self.next_states = []
         self.dones = []
+
+    def set_entropy_coef(self, coef):
+        """改进3：动态调整熵系数（退火调度）"""
+        self.entropy_coef = coef
 
     def select_action(self, state):
         """
@@ -518,8 +527,18 @@ class MPDPPO:
                 out_surr2 = clipped_out_ratio * mb_adv
                 out_surr = torch.min(out_surr1, out_surr2).mean()
 
-                # 求和：Actor loss = -(alf_surr + out_surr)
+                # Actor loss = -(alf_surr + out_surr)
                 actor_loss = -(alf_surr + out_surr)
+
+                # 改进1：轨迹平滑正则（直接约束Actor输出的日间变化）
+                means_reshaped = means.view(-1, 14, 2)  # (batch, 14, 2)
+                day_diffs = means_reshaped[:, 1:, :] - means_reshaped[:, :-1, :]  # (batch, 13, 2)
+                alf_abs_diff = day_diffs[:, :, 0].abs()  # ALF日变化(tanh空间)
+                out_abs_diff = day_diffs[:, :, 1].abs()  # OUT日变化(tanh空间)
+                alf_smooth_loss = F.relu(alf_abs_diff - SMOOTH_REG_ALF_THRESHOLD).pow(2).mean()
+                out_smooth_loss = F.relu(out_abs_diff - SMOOTH_REG_OUT_THRESHOLD).pow(2).mean()
+                smooth_reg_loss = SMOOTH_REG_WEIGHT * (alf_smooth_loss + out_smooth_loss)
+                actor_loss = actor_loss + smooth_reg_loss
 
                 if torch.isnan(actor_loss) or torch.isinf(actor_loss):
                     continue

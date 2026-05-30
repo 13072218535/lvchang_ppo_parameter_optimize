@@ -76,7 +76,7 @@ TARGET = '工作平均'
 # ==================== PPO相关参数 ====================
 
 # PPO训练参数
-PPO_EPOCHS = 1000              # PPO迭代轮数
+PPO_EPOCHS = 200              # PPO迭代轮数
 PPO_STEPS_PER_UPDATE = 256     # 每次更新前收集的步数（替代旧的PPO_BATCH_SIZE）
 PPO_MINI_BATCH_SIZE = 64       # 内层mini-batch大小
 PPO_INNER_EPOCHS = 10          # 每次更新的内层迭代轮数
@@ -92,11 +92,24 @@ EPS_CLIP_OUT = 0.2             # 实际出铝量裁剪范围 [0.8, 1.2]
 ACTION_TRAJECTORY_DIM = 28     # 14天完整动作轨迹维度
 
 # 奖励函数权重
-REWARD_ACC_WEIGHT = 10.0       # 精度奖励权重
-REWARD_ACC_KAPPA = 2.0         # 精度奖励指数衰减系数
+REWARD_ACC_WEIGHT = 8.0        # 精度奖励权重（配合κ=15，拉开好坏动作差距）
+REWARD_ACC_KAPPA = 15.0        # 精度奖励指数衰减系数（原2.0过平，15.0使0.1V vs 0.3V差距达3.2x）
 REWARD_PROG_WEIGHT = 0.3       # 进度奖励权重
-REWARD_SMOOTH_VIOLATION_WEIGHT = 5.0  # 平滑约束违反惩罚权重（violation已归一化到[0,1]比例空间）
+REWARD_SMOOTH_VIOLATION_WEIGHT = 20.0  # 平滑约束违反惩罚权重（violation已归一化到[0,1]比例空间）
+REWARD_SMOOTH_EXTREME_MULTIPLIER = 3.0  # 极端违反惩罚乘数：|Δ| > 2×上限时额外×3
 REWARD_BOUND_PENALTY = 10      # 边界惩罚值（软约束）
+REWARD_BOUND_MARGIN = 0.10     # 边界余量比例：动作进入[min, min+10%]或[max-10%, max]时触发惩罚
+
+# ==================== MPD-PPO改进参数 ====================
+# 改进1：轨迹平滑正则化（直接约束Actor输出的日间变化）
+SMOOTH_REG_WEIGHT = 0.05       # 轨迹平滑正则权重（保守起步，避免与reward信号冲突）
+SMOOTH_REG_ALF_THRESHOLD = 0.10  # ALF归一化日变化阈值（tanh空间≈1.5kg）
+SMOOTH_REG_OUT_THRESHOLD = 0.07  # OUT归一化日变化阈值（tanh空间≈49kg）
+
+# 改进3：熵退火调度（极小幅熵奖励，仅防策略过早坍缩）
+ENTROPY_COEF_START = 0.002     # 初始熵系数（非常小）
+ENTROPY_COEF_END = 0.0001      # 最终熵系数（几乎为零）
+ENTROPY_DECAY_EPOCHS = 400     # 熵系数线性衰减到END的epoch数
 
 # 多步奖励时间衰减权重（14天，逐日衰减）
 REWARD_TIME_WEIGHTS = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.45, 0.4,
@@ -109,7 +122,7 @@ ACTION_OUT_MIN = 3500.0        # 实际出铝量最小值 (kg)
 ACTION_OUT_MAX = 4200.0        # 实际出铝量最大值 (kg)
 
 # 动作变化约束
-ACTION_ALF_MAX_CHANGE = 3.0    # ALF加料量日变化上限 (kg)
+ACTION_ALF_MAX_CHANGE = 3.0    # ALF加料量日变化上限 (kg) 
 ACTION_OUT_MAX_CHANGE = 100.0  # 实际出铝量日变化上限 (kg)
 
 # 非控制特征经验更新系数
@@ -126,6 +139,35 @@ GAE_LAMBDA = 0.95
 
 # 保存间隔
 SAVE_INTERVAL = 50             # 每50轮保存一次模型
+
+# ==================== TAA-PPO改进参数 ====================
+# 改进1：时间自适应裁剪 — 14天×2动作的独立ε调度（平衡探索与稳定）
+TAA_EPS_SCHEDULE = [
+    # day 0-2 (紧): 实际执行的动作
+    [0.10, 0.10], [0.10, 0.10], [0.10, 0.10],
+    # day 3-6 (中): 近端计划
+    [0.15, 0.15], [0.15, 0.15], [0.15, 0.15], [0.15, 0.15],
+    # day 7-10 (中松): 中期计划
+    [0.20, 0.20], [0.20, 0.20], [0.20, 0.20], [0.20, 0.20],
+    # day 11-13 (松): 远期意图
+    [0.25, 0.25], [0.25, 0.25], [0.25, 0.25],
+]
+
+# 改进2：裁剪率预热 — 温和预热以平衡速度和稳定
+TAA_CLIP_WARMUP_EPOCHS = 80
+TAA_CLIP_WARMUP_FACTOR = 1.8      # epoch0: ε×1.8, 线性退火到目标ε
+
+# 改进3：自适应平滑正则 — 前期低权重不阻碍精度学习
+TAA_SMOOTH_START_WEIGHT = 0.005   # 初始平滑权重（epoch < 30）
+TAA_SMOOTH_END_WEIGHT = 0.05      # 最终平滑权重（epoch >= 100）
+TAA_SMOOTH_RAMP_START = 30        # 权重增长起始epoch
+TAA_SMOOTH_RAMP_END = 100         # 权重增长结束epoch
+
+# 改进4：双Critic集成
+TAA_USE_DUAL_CRITIC = True        # 是否使用双V-Critic（min聚合GAE）
+
+# 改进5：LayerNorm替代BatchNorm（在Actor/Critic中）
+TAA_USE_LAYER_NORM = True         # True=LayerNorm, False=BatchNorm1d
 
 # 日志间隔
 LOG_INTERVAL = 10              # 每10轮打印一次日志
