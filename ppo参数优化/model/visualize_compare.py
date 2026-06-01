@@ -33,6 +33,7 @@ ALGO_COLORS = {
     'ddpg': '#109618',
     'td3': '#FF9900',
     'sac': '#990099',
+    'taa_ppo': '#00BCD4',
 }
 ALGO_NAMES = {
     'mpd_ppo': 'MPD-PPO',
@@ -41,6 +42,7 @@ ALGO_NAMES = {
     'ddpg': 'DDPG',
     'td3': 'TD3',
     'sac': 'SAC',
+    'taa_ppo': 'TAA-PPO',
 }
 ALGO_LINESTYLES = {
     'mpd_ppo': '-',
@@ -49,6 +51,7 @@ ALGO_LINESTYLES = {
     'ddpg': '-.',
     'td3': (0, (3, 1, 1, 1)),
     'sac': (0, (5, 2)),
+    'taa_ppo': '-',
 }
 
 SCALER_PATH = os.path.join(PROJECT_ROOT, 'model', 'output', 'scaler.pkl')
@@ -157,7 +160,7 @@ def plot_compare_sample(all_histories, sample, save_path, algos):
         if set_v is None:
             set_v = np.array(h['voltage_set'])
         n = len(pred)
-        ax1.plot(np.arange(1, n + 1), pred, ALGO_LINESTYLES[algo_name],
+        ax1.plot(np.arange(1, n + 1), pred, linestyle=ALGO_LINESTYLES[algo_name],
                  color=ALGO_COLORS[algo_name], linewidth=2.0, markersize=6,
                  marker='o', label=ALGO_NAMES[algo_name], alpha=0.85)
     if set_v is not None:
@@ -209,7 +212,7 @@ def plot_compare_sample(all_histories, sample, save_path, algos):
         h = all_histories.get(algo_name)
         if h is None: continue
         alf = np.array(h['alf_action'])
-        ax3.plot(np.arange(1, len(alf) + 1), alf, ALGO_LINESTYLES[algo_name],
+        ax3.plot(np.arange(1, len(alf) + 1), alf, linestyle=ALGO_LINESTYLES[algo_name],
                  color=ALGO_COLORS[algo_name], linewidth=2.0, marker='o', markersize=5,
                  label=ALGO_NAMES[algo_name], alpha=0.85)
     ax3.set_ylabel('ALF (kg)', fontsize=12, fontweight='bold')
@@ -222,7 +225,7 @@ def plot_compare_sample(all_histories, sample, save_path, algos):
         h = all_histories.get(algo_name)
         if h is None: continue
         out = np.array(h['out_action'])
-        ax4.plot(np.arange(1, len(out) + 1), out, ALGO_LINESTYLES[algo_name],
+        ax4.plot(np.arange(1, len(out) + 1), out, linestyle=ALGO_LINESTYLES[algo_name],
                  color=ALGO_COLORS[algo_name], linewidth=2.0, marker='o', markersize=5,
                  label=ALGO_NAMES[algo_name], alpha=0.85)
     ax4.set_xlabel('Step (day)', fontsize=13, fontweight='bold')
@@ -329,7 +332,7 @@ def plot_overview_compare(all_mae_data, save_path, algos):
 def main():
     parser = argparse.ArgumentParser(description='Multi-Algorithm Comparison Visualization')
     parser.add_argument('--algos', type=str, nargs='+',
-                        default=['mpd_ppo', 'vanilla_ppo', 'a2c', 'ddpg', 'td3', 'sac'],
+                        default=['mpd_ppo', 'vanilla_ppo', 'a2c', 'taa_ppo', 'ddpg', 'td3', 'sac'],
                         help='Algorithms to compare (must have trained models)')
     parser.add_argument('--device', type=str, default='auto')
     args = parser.parse_args()
