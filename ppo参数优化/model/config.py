@@ -115,6 +115,9 @@ ENTROPY_DECAY_EPOCHS = 400     # 熵系数线性衰减到END的epoch数
 REWARD_TIME_WEIGHTS = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.45, 0.4,
                        0.35, 0.3, 0.25, 0.2, 0.15, 0.1]
 
+# TAA-PPO-4D 专用：4维架构固有边界接近问题，降低惩罚权重避免主导训练
+TAA4D_BOUND_PENALTY_WEIGHT = 3.0   # 原 REWARD_BOUND_PENALTY=10，降至3
+
 # 动作范围（由历史数据5%~95%分位数确定）
 ACTION_ALF_MIN = 25.0          # ALF加料量最小值 (kg)
 ACTION_ALF_MAX = 40.0          # ALF加料量最大值 (kg)
@@ -153,6 +156,10 @@ TAA_EPS_SCHEDULE = [
     [0.25, 0.25], [0.25, 0.25], [0.25, 0.25],
 ]
 
+# TAA-PPO-4D 4维时间自适应裁剪
+# [alf_start(紧), alf_end(松), out_start(紧), out_end(松)]
+TAA_4D_EPS = [0.10, 0.25, 0.10, 0.25]
+
 # 改进2：裁剪率预热 — 温和预热以平衡速度和稳定
 TAA_CLIP_WARMUP_EPOCHS = 80
 TAA_CLIP_WARMUP_FACTOR = 1.8      # epoch0: ε×1.8, 线性退火到目标ε
@@ -171,3 +178,23 @@ TAA_USE_LAYER_NORM = True         # True=LayerNorm, False=BatchNorm1d
 
 # 日志间隔
 LOG_INTERVAL = 10              # 每10轮打印一次日志
+
+# ==================== Uncertainty Quantification Parameters ====================
+
+# Uncertainty penalty coefficient — multiplicative discount on R_acc:
+#   R = R_acc * exp(-UNC_LAMBDA * mean_var) + P_smooth + P_bound
+# UNC_LAMBDA=50 means:
+#   var=0.0009 (P50) → exp(-0.045)=0.956 (4% discount, near training dist)
+#   var=0.010  (P95) → exp(-0.512)=0.600 (40% discount, moderate OOD)
+#   var=0.05   (OOD) → exp(-2.5)=0.082  (92% discount, strongly penalized)
+UNC_LAMBDA = 50.0
+
+# Deprecated with multiplicative formulation — kept for compatibility
+UNC_USE_THRESHOLD = False
+UNC_THRESHOLD = None
+
+# Number of ensemble members (must match trained ensemble)
+UNC_NUM_ENSEMBLE = 5
+
+# Glob pattern for ensemble checkpoints (relative to ppo参数优化/model/)
+UNC_CHECKPOINT_PATTERN = '../../model/output/best_conditional_seed*.pth'

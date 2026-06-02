@@ -2,6 +2,7 @@
 MPD-PPO仿真环境类
 封装条件电压预测模型，实现MDP转移
 """
+import sys
 import numpy as np
 import torch
 import torch.nn as nn
@@ -13,34 +14,45 @@ from config import *
 class VoltageControlEnv:
     """电压控制仿真环境"""
     
-    def __init__(self, predictor_model, scaler, feature_cols, device='cpu'):
+    def __init__(self, predictor_model, scaler, feature_cols, device='cpu',
+                 uncertainty_config=None, ensemble_is_ensemble=False):
         """
         参数:
-            predictor_model: 训练好的条件电压预测模型
+            predictor_model: 训练好的条件电压预测模型（单模型）或 UncertaintyQuantifiedPredictor（ensemble模式）
             scaler: 数据标准化器
             feature_cols: 特征列名列表（用于索引映射）
             device: 设备（cpu或cuda）
+            uncertainty_config: dict with keys 'lambda', 'use_threshold', 'threshold'
+            ensemble_is_ensemble: True if predictor_model is an ensemble wrapper
         """
         self.predictor = predictor_model
         self.scaler = scaler
         self.device = device
         self.feature_cols = feature_cols
-        
+        self.ensemble_is_ensemble = ensemble_is_ensemble
+
+        # Uncertainty quantification config
+        if uncertainty_config is None:
+            uncertainty_config = {}
+        self.unc_lambda = uncertainty_config.get('lambda', 1.0)
+        self.unc_use_threshold = uncertainty_config.get('use_threshold', True)
+        self.unc_threshold = uncertainty_config.get('threshold', None)
+
         self.pot_embed_dim = POT_EMBED_DIM
         self.hidden_dim = HIDDEN_DIM
-        
+
         self._build_feature_indices()
-        
+
         self.alf_min = ACTION_ALF_MIN
         self.alf_max = ACTION_ALF_MAX
         self.out_min = ACTION_OUT_MIN
         self.out_max = ACTION_OUT_MAX
-        
+
         self.alf_max_change = ACTION_ALF_MAX_CHANGE
         self.out_max_change = ACTION_OUT_MAX_CHANGE
-        
+
         self.state_dim = None
-        
+
         self.current_state = None
         self.current_step = 0
         self.past_features = None
@@ -48,11 +60,16 @@ class VoltageControlEnv:
         self.pot_id = None
         self.last_action = None
         self.cumulative_error = 0.0
-        self._smooth_weight = REWARD_SMOOTH_VIOLATION_WEIGHT  # 初始默认值
+        self._smooth_weight = REWARD_SMOOTH_VIOLATION_WEIGHT
+        self._bound_weight = REWARD_BOUND_PENALTY  # 可被外部覆盖
 
     def set_smoothness_weight(self, weight):
-        """改进3：动态调整平滑惩罚权重（off-policy课程学习用）"""
+        """动态调整平滑惩罚权重（off-policy课程学习用）"""
         self._smooth_weight = weight
+
+    def set_bound_penalty_weight(self, weight):
+        """动态调整边界惩罚权重（TAA-PPO-4D专用：4D架构无法避免边界）"""
+        self._bound_weight = weight
     
     def _build_feature_indices(self):
         """构建特征列索引映射（仅原始特征，无统计/衍生特征）"""
@@ -100,7 +117,10 @@ class VoltageControlEnv:
         return future_actions
     
     def _predict_voltage(self, past_features, future_actions, pot_id):
-        """调用条件预测模型预测电压（处理标准化/反标准化）"""
+        """调用条件预测模型预测电压（处理标准化/反标准化）。
+        Returns (voltage_pred, uncertainty) where uncertainty is (14,) variance per day
+        or None for single-model mode.
+        """
         self.predictor.eval()
         with torch.no_grad():
             # past_features标准化（与训练时一致）
@@ -122,8 +142,20 @@ class VoltageControlEnv:
 
             pot_id_tensor = torch.LongTensor([pot_id]).to(self.device)
 
-            voltage_pred = self.predictor(past_tensor, future_actions_tensor, pot_id_tensor)
-            voltage_pred = voltage_pred.cpu().numpy()[0]
+            if self.ensemble_is_ensemble:
+                # Ensemble: get mean prediction + per-day variance
+                mean, variance, _ = self.predictor.predict(
+                    standardized_features[None, :, :],
+                    future_actions_std[None, :, :],
+                    int(pot_id)
+                )
+                voltage_pred = mean[0]        # (14,)
+                uncertainty = variance[0]     # (14,) per-day variance
+            else:
+                # Legacy single-model path
+                voltage_pred = self.predictor(past_tensor, future_actions_tensor, pot_id_tensor)
+                voltage_pred = voltage_pred.cpu().numpy()[0]
+                uncertainty = None
 
             # 反标准化：模型输出是标准化值(μ≈0,σ≈1)，转为原始电压(V)
             target_idx = self.feature_indices['target']
@@ -133,17 +165,19 @@ class VoltageControlEnv:
 
             # 钳制到物理合理范围
             voltage_pred = np.clip(voltage_pred, 2.5, 6.0)
-            return voltage_pred
+            return voltage_pred, uncertainty
     
-    def _calculate_reward(self, voltage_pred, target_voltage, action_trajectory):
+    def _calculate_reward(self, voltage_pred, target_voltage, action_trajectory,
+                           uncertainty=None):
         """
         计算多步加权奖励函数
         R_acc = Σ_{i=0}^{13} w_i * ACC_WEIGHT * exp(-κ * (v̂_i - v_set_i)²)
-        R_t = R_acc + P_smooth + P_bound
+        R_t = R_acc * exp(-λ * mean_var) + P_smooth + P_bound
         参数:
             voltage_pred: (14,) 预测电压序列
             target_voltage: (14,) 目标电压序列（设定电压）
             action_trajectory: (14, 2) 14天动作轨迹（未归一化）
+            uncertainty: (14,) per-day ensemble variance, or None for single-model mode
         """
         # 多步加权精度奖励
         errors = np.abs(voltage_pred - target_voltage)
@@ -200,24 +234,36 @@ class VoltageControlEnv:
             # ALF边界接近惩罚
             if a[0] < self.alf_min + alf_margin:
                 ratio = (self.alf_min + alf_margin - a[0]) / alf_margin
-                P_bound -= REWARD_BOUND_PENALTY * ratio
+                P_bound -= self._bound_weight * ratio
             elif a[0] > self.alf_max - alf_margin:
                 ratio = (a[0] - (self.alf_max - alf_margin)) / alf_margin
-                P_bound -= REWARD_BOUND_PENALTY * ratio
+                P_bound -= self._bound_weight * ratio
             # OUT边界接近惩罚
             if a[1] < self.out_min + out_margin:
                 ratio = (self.out_min + out_margin - a[1]) / out_margin
-                P_bound -= REWARD_BOUND_PENALTY * ratio
+                P_bound -= self._bound_weight * ratio
             elif a[1] > self.out_max - out_margin:
                 ratio = (a[1] - (self.out_max - out_margin)) / out_margin
-                P_bound -= REWARD_BOUND_PENALTY * ratio
+                P_bound -= self._bound_weight * ratio
 
-        reward = R_acc + smooth_penalty + P_bound
+        # 不确定性惩罚（乘法折扣形式）：
+        # P_unc将R_acc按比例折扣：越OOD→折扣越大，量级与R_acc天然匹配
+        P_unc = 0.0
+        if uncertainty is not None:
+            mean_var = float(np.mean(uncertainty))
+            discount = float(np.exp(-self.unc_lambda * mean_var))
+            P_unc = R_acc * (discount - 1.0)  # 负值，表示被扣掉的R_acc部分
+            R_acc_discounted = R_acc * discount
+        else:
+            R_acc_discounted = R_acc
+
+        reward = R_acc_discounted + smooth_penalty + P_bound
 
         if np.isinf(reward) or np.isnan(reward):
             reward = R_acc
 
-        reward_components = {'R_acc': R_acc, 'P_smooth': smooth_penalty, 'P_bound': P_bound}
+        reward_components = {'R_acc': R_acc, 'P_smooth': smooth_penalty,
+                             'P_bound': P_bound, 'P_unc': P_unc}
         return reward, errors[0], reward_components
 
     def _update_state(self, future_actions_full, voltage_pred, prev_features):
@@ -337,9 +383,11 @@ class VoltageControlEnv:
             denormed = self._normalize_action(future_actions[i])
             future_actions_denorm[i] = self._clip_action(denormed)
 
-        voltage_pred = self._predict_voltage(self.past_features, future_actions_denorm, self.pot_id)
+        voltage_pred, uncertainty = self._predict_voltage(self.past_features, future_actions_denorm, self.pot_id)
 
-        reward, day1_error, reward_components = self._calculate_reward(voltage_pred, self.target_voltage, future_actions_denorm)
+        reward, day1_error, reward_components = self._calculate_reward(
+            voltage_pred, self.target_voltage, future_actions_denorm,
+            uncertainty=uncertainty)
 
         # 在滑动前保存当前天的目标电压（用于info输出）
         current_target = self.target_voltage[0] if len(self.target_voltage) > 0 else None
@@ -375,6 +423,8 @@ class VoltageControlEnv:
             'R_acc': reward_components['R_acc'],
             'P_smooth': reward_components['P_smooth'],
             'P_bound': reward_components['P_bound'],
+            'P_unc': reward_components.get('P_unc', 0.0),
+            'uncertainty_mean': float(np.mean(uncertainty)) if uncertainty is not None else 0.0,
         }
 
         return next_state, reward, done, info
@@ -388,10 +438,33 @@ class VoltageControlEnv:
         return ACTION_TRAJECTORY_DIM
 
 
-def load_predictor_model(model_path, num_pots, input_dim, device='cpu'):
+def load_predictor_model(model_path, num_pots, input_dim, device='cpu',
+                          ensemble=False, ensemble_checkpoint_paths=None):
     """
     加载训练好的条件电压预测模型，自动处理新旧架构不兼容。
+
+    参数:
+        model_path: 单模型 .pth 路径（ensemble=False时必需）
+        num_pots: 槽号数量
+        input_dim: 输入特征维度
+        device: 设备
+        ensemble: True 表示加载 ensemble predictor
+        ensemble_checkpoint_paths: ensemble 成员 .pth 路径列表
+    返回:
+        predictor: ConditionalVoltagePredictor 或 UncertaintyQuantifiedPredictor
     """
+    if ensemble and ensemble_checkpoint_paths is not None:
+        model_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'model'))
+        if model_dir not in sys.path:
+            sys.path.insert(0, model_dir)
+        from ensemble_predictor import UncertaintyQuantifiedPredictor
+        predictor = UncertaintyQuantifiedPredictor(
+            num_models=len(ensemble_checkpoint_paths),
+            input_dim=input_dim, num_pots=num_pots, device=device
+        )
+        predictor.load_checkpoints(ensemble_checkpoint_paths)
+        return predictor
+
     base_model = LSTMModelWithPotEmbedding(
         input_dim=input_dim,
         num_pots=num_pots,

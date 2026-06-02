@@ -31,7 +31,7 @@ plt.rcParams['axes.unicode_minus'] = False
 
 COLORS = {
     'reward': '#1A73E8', 'R_acc': '#109618', 'P_smooth': '#DC3912',
-    'P_bound': '#FF9900', 'actor': '#3366CC', 'critic': '#888888',
+    'P_bound': '#FF9900', 'P_unc': '#990099', 'actor': '#3366CC', 'critic': '#888888',
 }
 
 
@@ -88,6 +88,7 @@ def run_episode_on_policy(env, algo, sample):
     total_R_acc = 0.0
     total_P_smooth = 0.0
     total_P_bound = 0.0
+    total_P_unc = 0.0
     episode_data = []
 
     for _ in range(MAX_EPISODE_STEPS):
@@ -99,12 +100,14 @@ def run_episode_on_policy(env, algo, sample):
         total_R_acc += info.get('R_acc', 0)
         total_P_smooth += info.get('P_smooth', 0)
         total_P_bound += info.get('P_bound', 0)
+        total_P_unc += info.get('P_unc', 0)
         episode_data.append(info)
         if done:
             break
 
     return total_reward, episode_data, {
-        'R_acc': total_R_acc, 'P_smooth': total_P_smooth, 'P_bound': total_P_bound
+        'R_acc': total_R_acc, 'P_smooth': total_P_smooth,
+        'P_bound': total_P_bound, 'P_unc': total_P_unc
     }
 
 
@@ -115,6 +118,7 @@ def run_episode_off_policy(env, algo, sample):
     total_R_acc = 0.0
     total_P_smooth = 0.0
     total_P_bound = 0.0
+    total_P_unc = 0.0
     actor_loss_sum = 0.0
     critic_loss_sum = 0.0
     update_count = 0
@@ -137,6 +141,7 @@ def run_episode_off_policy(env, algo, sample):
         total_R_acc += info.get('R_acc', 0)
         total_P_smooth += info.get('P_smooth', 0)
         total_P_bound += info.get('P_bound', 0)
+        total_P_unc += info.get('P_unc', 0)
         episode_data.append(info)
         if done:
             break
@@ -144,7 +149,8 @@ def run_episode_off_policy(env, algo, sample):
     avg_al = actor_loss_sum / max(update_count, 1)
     avg_cl = critic_loss_sum / max(update_count, 1)
     return total_reward, episode_data, {
-        'R_acc': total_R_acc, 'P_smooth': total_P_smooth, 'P_bound': total_P_bound
+        'R_acc': total_R_acc, 'P_smooth': total_P_smooth,
+        'P_bound': total_P_bound, 'P_unc': total_P_unc
     }, avg_al, avg_cl
 
 
@@ -177,6 +183,8 @@ def plot_training_curves(metrics, save_path):
     ax.plot(epochs, moving_average(metrics['r_acc'], window), color=COLORS['R_acc'], linewidth=1.5, label='R_acc')
     ax.plot(epochs, moving_average(metrics['p_smooth'], window), color=COLORS['P_smooth'], linewidth=1.5, label='P_smooth')
     ax.plot(epochs, moving_average(metrics['p_bound'], window), color=COLORS['P_bound'], linewidth=1.5, label='P_bound')
+    if metrics.get('p_unc') and any(v != 0 for v in metrics['p_unc']):
+        ax.plot(epochs, moving_average(metrics['p_unc'], window), color=COLORS['P_unc'], linewidth=1.5, label='P_unc')
     ax.axhline(y=0, color='gray', linestyle=':', linewidth=1.0, alpha=0.6)
     ax.set_xlabel('Epoch'); ax.set_ylabel('Components')
     ax.set_title('Reward Components (Smoothed)'); ax.legend(); ax.grid(True, alpha=0.2, linestyle='--')
@@ -206,7 +214,7 @@ def train_on_policy(algo, algo_name, env, train_samples, algo_dir, epochs=PPO_EP
     """On-policy训练循环"""
     best_reward = float('-inf')
     metrics = {'rewards': [], 'r_acc': [], 'p_smooth': [], 'p_bound': [],
-               'actor_losses': [], 'critic_losses': []}
+               'p_unc': [], 'actor_losses': [], 'critic_losses': []}
     total_steps = 0
 
     for epoch in range(epochs):
@@ -214,14 +222,15 @@ def train_on_policy(algo, algo_name, env, train_samples, algo_dir, epochs=PPO_EP
         if hasattr(algo, 'set_epoch'):
             algo.set_epoch(epoch)
 
-        epoch_reward = 0.0; epoch_R = 0.0; epoch_PS = 0.0; epoch_PB = 0.0
+        epoch_reward = 0.0; epoch_R = 0.0; epoch_PS = 0.0; epoch_PB = 0.0; epoch_PU = 0.0
         num_episodes = 0
 
         while total_steps < PPO_STEPS_PER_UPDATE:
             sample = train_samples[np.random.randint(len(train_samples))]
             reward, episode_data, rc = run_episode_on_policy(env, algo, sample)
             epoch_reward += reward
-            epoch_R += rc['R_acc']; epoch_PS += rc['P_smooth']; epoch_PB += rc['P_bound']
+            epoch_R += rc['R_acc']; epoch_PS += rc['P_smooth']  # noqa: E702
+            epoch_PB += rc['P_bound']; epoch_PU += rc['P_unc']  # noqa: E702
             num_episodes += 1
             total_steps += len(episode_data)
 
@@ -232,6 +241,7 @@ def train_on_policy(algo, algo_name, env, train_samples, algo_dir, epochs=PPO_EP
         metrics['r_acc'].append(epoch_R / max(num_episodes, 1))
         metrics['p_smooth'].append(epoch_PS / max(num_episodes, 1))
         metrics['p_bound'].append(epoch_PB / max(num_episodes, 1))
+        metrics['p_unc'].append(epoch_PU / max(num_episodes, 1))
         metrics['actor_losses'].append(actor_loss)
         metrics['critic_losses'].append(critic_loss)
 
@@ -240,9 +250,10 @@ def train_on_policy(algo, algo_name, env, train_samples, algo_dir, epochs=PPO_EP
             algo.save_model(os.path.join(algo_dir, 'best_model.pth'))
 
         if (epoch + 1) % LOG_INTERVAL == 0 or epoch == 0:
+            unc_str = f" Pu={metrics['p_unc'][-1]:.2f}" if metrics['p_unc'][-1] != 0 else ""
             print(f"Epoch [{epoch + 1:04d}/{epochs}] "
                   f"Reward: {avg_reward:.2f} (R={metrics['r_acc'][-1]:.2f} "
-                  f"Ps={metrics['p_smooth'][-1]:.2f} Pb={metrics['p_bound'][-1]:.2f}) "
+                  f"Ps={metrics['p_smooth'][-1]:.2f} Pb={metrics['p_bound'][-1]:.2f}{unc_str}) "
                   f"Best: {best_reward:.2f} "
                   f"AL: {actor_loss:.5f} CL: {critic_loss:.4f}")
 
@@ -255,7 +266,7 @@ def train_off_policy(algo, algo_name, env, train_samples, algo_dir, epochs=PPO_E
     """Off-policy训练循环"""
     best_reward = float('-inf')
     metrics = {'rewards': [], 'r_acc': [], 'p_smooth': [], 'p_bound': [],
-               'actor_losses': [], 'critic_losses': []}
+               'p_unc': [], 'actor_losses': [], 'critic_losses': []}
     steps_per_epoch = PPO_STEPS_PER_UPDATE
     warmup_steps = 256  # replay buffer填充阈值
 
@@ -277,7 +288,7 @@ def train_off_policy(algo, algo_name, env, train_samples, algo_dir, epochs=PPO_E
     print(f"  Warmup complete ({len(algo.replay_buffer)} transitions, {time.time()-t_warmup:.0f}s)")
 
     for epoch in range(epochs):
-        epoch_reward = 0.0; epoch_R = 0.0; epoch_PS = 0.0; epoch_PB = 0.0
+        epoch_reward = 0.0; epoch_R = 0.0; epoch_PS = 0.0; epoch_PB = 0.0; epoch_PU = 0.0
         epoch_al = 0.0; epoch_cl = 0.0
         num_episodes = 0; total_steps = 0
 
@@ -291,7 +302,8 @@ def train_off_policy(algo, algo_name, env, train_samples, algo_dir, epochs=PPO_E
             sample = train_samples[np.random.randint(len(train_samples))]
             reward, episode_data, rc, al, cl = run_episode_off_policy(env, algo, sample)
             epoch_reward += reward
-            epoch_R += rc['R_acc']; epoch_PS += rc['P_smooth']; epoch_PB += rc['P_bound']
+            epoch_R += rc['R_acc']; epoch_PS += rc['P_smooth']  # noqa: E702
+            epoch_PB += rc['P_bound']; epoch_PU += rc['P_unc']  # noqa: E702
             epoch_al += al; epoch_cl += cl
             num_episodes += 1
             total_steps += len(episode_data)
@@ -301,6 +313,7 @@ def train_off_policy(algo, algo_name, env, train_samples, algo_dir, epochs=PPO_E
         metrics['r_acc'].append(epoch_R / max(num_episodes, 1))
         metrics['p_smooth'].append(epoch_PS / max(num_episodes, 1))
         metrics['p_bound'].append(epoch_PB / max(num_episodes, 1))
+        metrics['p_unc'].append(epoch_PU / max(num_episodes, 1))
         metrics['actor_losses'].append(epoch_al / max(num_episodes, 1))
         metrics['critic_losses'].append(epoch_cl / max(num_episodes, 1))
 
@@ -309,9 +322,10 @@ def train_off_policy(algo, algo_name, env, train_samples, algo_dir, epochs=PPO_E
             algo.save_model(os.path.join(algo_dir, 'best_model.pth'))
 
         if (epoch + 1) % LOG_INTERVAL == 0 or epoch == 0:
+            unc_str = f" Pu={metrics['p_unc'][-1]:.2f}" if metrics['p_unc'][-1] != 0 else ""
             print(f"Epoch [{epoch + 1:04d}/{epochs}] "
                   f"Reward: {avg_reward:.2f} (R={metrics['r_acc'][-1]:.2f} "
-                  f"Ps={metrics['p_smooth'][-1]:.2f} Pb={metrics['p_bound'][-1]:.2f}) "
+                  f"Ps={metrics['p_smooth'][-1]:.2f} Pb={metrics['p_bound'][-1]:.2f}{unc_str}) "
                   f"Best: {best_reward:.2f} "
                   f"AL: {metrics['actor_losses'][-1]:.5f} CL: {metrics['critic_losses'][-1]:.4f}")
 
@@ -321,7 +335,7 @@ def train_off_policy(algo, algo_name, env, train_samples, algo_dir, epochs=PPO_E
 def main():
     parser = argparse.ArgumentParser(description='Multi-Algorithm PPO Training Comparison')
     parser.add_argument('--algo', type=str, default='mpd_ppo',
-                        choices=['mpd_ppo', 'vanilla_ppo', 'a2c', 'ddpg', 'td3', 'sac', 'taa_ppo'],
+                        choices=['mpd_ppo', 'vanilla_ppo', 'a2c', 'taa_ppo', 'taa_ppo_4d', 'ddpg', 'td3', 'sac'],
                         help='Algorithm to train')
     parser.add_argument('--epochs', type=int, default=PPO_EPOCHS, help='Training epochs')
     parser.add_argument('--seed', type=int, default=SEED, help='Random seed')
@@ -336,7 +350,7 @@ def main():
 
     algo_name = args.algo
     print("=" * 60)
-    print(f"Training: {algo_name.upper()}（{'On-policy' if algo_name in ['mpd_ppo','vanilla_ppo','a2c'] else 'Off-policy'}）")
+    print(f"Training: {algo_name.upper()}（{'On-policy' if algo_name in ['mpd_ppo','vanilla_ppo','a2c','taa_ppo','taa_ppo_4d'] else 'Off-policy'}）")
     print(f"Device: {device} | Epochs: {args.epochs} | Seed: {args.seed}")
     print("=" * 60)
 
@@ -351,34 +365,76 @@ def main():
     train_samples, scaler, feature_cols = load_data_for_ppo(DATA_PATH)
     print(f"   Samples: {len(train_samples)}, Features: {len(feature_cols)}")
 
-    # 2. 加载预测模型
+    # 2. 加载预测模型（自动检测ensemble）
     print("\n2. Loading condition predictor...")
     PROJECT_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
-    model_path = os.path.join(PROJECT_ROOT, 'model', 'output', 'best_conditional_model.pth')
-    if not os.path.exists(model_path):
-        model_path = os.path.join(PROJECT_ROOT, 'model', 'output', 'final_conditional_model.pth')
-    print(f"   Model: {model_path}")
+    MODEL_OUTPUT_DIR = os.path.join(PROJECT_ROOT, 'model', 'output')
+
+    # 检测ensemble checkpoints
+    import glob as glob_module
+    ensemble_pattern = os.path.join(MODEL_OUTPUT_DIR, 'best_conditional_seed*.pth')
+    ensemble_paths = sorted(glob_module.glob(ensemble_pattern))
 
     num_features = len(feature_cols)
     num_pots = len(TRAIN_POTS) + len(VAL_POTS) + len(TEST_POTS)
-    predictor = load_predictor_model(model_path, num_pots, num_features, device)
+
+    ensemble_is_ensemble = False
+    if len(ensemble_paths) >= UNC_NUM_ENSEMBLE:
+        print(f"   Found {len(ensemble_paths)} ensemble checkpoints, using ensemble predictor")
+        ensemble_paths = ensemble_paths[:UNC_NUM_ENSEMBLE]
+        predictor = load_predictor_model(
+            None, num_pots, num_features, device,
+            ensemble=True, ensemble_checkpoint_paths=ensemble_paths
+        )
+        ensemble_is_ensemble = True
+    else:
+        print(f"   Found {len(ensemble_paths)} ensemble checkpoints (< {UNC_NUM_ENSEMBLE}), using single predictor")
+        model_path = os.path.join(MODEL_OUTPUT_DIR, 'best_conditional_model.pth')
+        if not os.path.exists(model_path):
+            model_path = os.path.join(MODEL_OUTPUT_DIR, 'final_conditional_model.pth')
+        print(f"   Model: {model_path}")
+        predictor = load_predictor_model(model_path, num_pots, num_features, device)
     print("   Predictor loaded.")
 
-    # 3. 创建环境
-    print("\n3. Creating environment...")
-    env = VoltageControlEnv(predictor, scaler, feature_cols, device)
+    # 3. 加载不确定性阈值（如果使用ensemble）
+    unc_threshold = UNC_THRESHOLD
+    if ensemble_is_ensemble and UNC_USE_THRESHOLD and unc_threshold is None:
+        threshold_path = os.path.join(MODEL_OUTPUT_DIR, 'uncertainty_threshold.json')
+        if os.path.exists(threshold_path):
+            with open(threshold_path, 'r') as f:
+                threshold_data = json.load(f)
+            unc_threshold = threshold_data.get('P95', None)
+            print(f"   Uncertainty threshold loaded: P95={unc_threshold:.6f}" if unc_threshold else
+                  f"   WARNING: No P95 value in threshold file")
+
+    # 4. 创建环境
+    print("\n4. Creating environment...")
+    uncertainty_config = {
+        'lambda': UNC_LAMBDA,
+        'use_threshold': UNC_USE_THRESHOLD,
+        'threshold': unc_threshold,
+    }
+    env = VoltageControlEnv(predictor, scaler, feature_cols, device,
+                            uncertainty_config=uncertainty_config,
+                            ensemble_is_ensemble=ensemble_is_ensemble)
     input_dim = len(feature_cols)
     state_dim = INPUT_LEN * input_dim + OUTPUT_LEN + 4  # +2 last_action +1 cum_err +1 pot_id
     print(f"   State dim: {state_dim}, Action dim: {ACTION_TRAJECTORY_DIM}")
 
-    # 4. 创建算法
-    print(f"\n4. Initializing {algo_name.upper()}...")
+    # 5. 创建算法
+    print(f"\n5. Initializing {algo_name.upper()}...")
     algo = create_algorithm(algo_name, input_dim, num_pots, ACTION_TRAJECTORY_DIM, device)
     print(f"   Algorithm initialized.")
 
-    # 5. 训练
+    # 6. 训练
     t_start = time.time()
-    if algo_name in ['mpd_ppo', 'vanilla_ppo', 'a2c', 'taa_ppo']:
+
+    # TAA-PPO-4D: 4维架构无法独立控制每天动作，降低边界惩罚
+    if algo_name == 'taa_ppo_4d' and hasattr(env, 'set_bound_penalty_weight'):
+        env.set_bound_penalty_weight(TAA4D_BOUND_PENALTY_WEIGHT)
+        print(f"   TAA-PPO-4D: bound penalty weight set to {TAA4D_BOUND_PENALTY_WEIGHT}")
+
+    if algo_name in ['mpd_ppo', 'vanilla_ppo', 'a2c', 'taa_ppo', 'taa_ppo_4d']:
         metrics, best_r = train_on_policy(algo, algo_name, env, train_samples, algo_dir, args.epochs)
     else:
         metrics, best_r = train_off_policy(algo, algo_name, env, train_samples, algo_dir, args.epochs)
@@ -386,7 +442,7 @@ def main():
 
     print(f"\nTraining complete! Best reward: {best_r:.4f}, Time: {t_elapsed:.1f}s")
 
-    # 6. 保存模型 & 指标
+    # 7. 保存模型 & 指标
     algo.save_model(os.path.join(algo_dir, 'final_model.pth'))
     with open(os.path.join(algo_dir, 'training_metrics.json'), 'w', encoding='utf-8') as f:
         serializable = {k: [float(x) for x in v] for k, v in metrics.items()}
@@ -394,7 +450,7 @@ def main():
         serializable['algo_name'] = algo_name
         json.dump(serializable, f, indent=2, ensure_ascii=False)
 
-    # 7. 生成训练曲线
+    # 8. 生成训练曲线
     print("\n7. Generating training curves...")
     try:
         plot_training_curves(metrics, os.path.join(vis_dir, 'training_curves.png'))

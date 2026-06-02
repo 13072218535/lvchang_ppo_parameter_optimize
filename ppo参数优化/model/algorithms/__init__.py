@@ -9,6 +9,7 @@ from .ddpg import DDPG
 from .td3 import TD3
 from .sac import SAC
 from .taa_ppo import TAAPPO
+from .taa_ppo_4d import TAAPPO4D
 
 ALGO_REGISTRY = {
     'mpd_ppo': 'MPDPPO',
@@ -18,6 +19,7 @@ ALGO_REGISTRY = {
     'td3': 'TD3',
     'sac': 'SAC',
     'taa_ppo': 'TAAPPO',
+    'taa_ppo_4d': 'TAAPPO4D',
 }
 
 def create_algorithm(algo_name, input_dim, num_pots, action_dim, device='cpu'):
@@ -39,5 +41,7 @@ def create_algorithm(algo_name, input_dim, num_pots, action_dim, device='cpu'):
         return SAC(input_dim, num_pots, action_dim, device)
     elif algo_name == 'taa_ppo':
         return TAAPPO(input_dim, num_pots, action_dim, device)
+    elif algo_name == 'taa_ppo_4d':
+        return TAAPPO4D(input_dim, num_pots, action_dim, device)
     else:
         raise ValueError(f"Unknown algorithm: {algo_name}. Choose from: {list(ALGO_REGISTRY.keys())}")

@@ -23,22 +23,26 @@ ALGO_COLORS = {
     'mpd_ppo': '#1A73E8', 'vanilla_ppo': '#DC3912', 'a2c': '#888888',
     'ddpg': '#109618', 'td3': '#FF9900', 'sac': '#990099',
     'taa_ppo': '#00BCD4',  # 醒目的青蓝色，与所有现有颜色区分
+    'taa_ppo_4d': '#E91E63',  # 品红，4D降维变体（与DDPG绿色区分）
 }
 ALGO_NAMES = {
     'mpd_ppo': 'MPD-PPO', 'vanilla_ppo': 'Vanilla PPO', 'a2c': 'A2C',
     'ddpg': 'DDPG', 'td3': 'TD3', 'sac': 'SAC',
     'taa_ppo': 'TAA-PPO',
+    'taa_ppo_4d': 'TAA-PPO-4D',
 }
 # 线型区分：on-policy实线，off-policy虚线，TAA-PPO加粗突出
 ALGO_LINESTYLES = {
     'mpd_ppo': '-', 'vanilla_ppo': '-', 'a2c': '-',
     'ddpg': '--', 'td3': '--', 'sac': '--',
     'taa_ppo': '-',  # 实线
+    'taa_ppo_4d': '-.',  # 点划线（4D降维变体）
 }
 ALGO_LINEWIDTHS = {
     'mpd_ppo': 1.5, 'vanilla_ppo': 1.5, 'a2c': 1.5,
     'ddpg': 1.2, 'td3': 1.2, 'sac': 1.2,
     'taa_ppo': 2.8,  # 加粗突出
+    'taa_ppo_4d': 2.2,  # 稍粗突出
 }
 
 
@@ -124,7 +128,7 @@ def plot_reward_comparison(all_metrics, save_path, algos):
 
     # ── 子图2-1: 超紧密缩放（735-752，仅on-policy） ──
     ax = axes[1, 0]
-    focus_algos = ['mpd_ppo', 'vanilla_ppo', 'a2c', 'taa_ppo']
+    focus_algos = ['mpd_ppo', 'vanilla_ppo', 'a2c', 'taa_ppo', 'taa_ppo_4d']
     for algo_name in focus_algos:
         m = all_metrics.get(algo_name)
         if m is None: continue
@@ -187,7 +191,7 @@ def plot_reward_comparison(all_metrics, save_path, algos):
     on_style = dict(colors=[], labels=[], linewidths=[])
     off_style = dict(colors=[], labels=[], linewidths=[])
 
-    on_policy_set = {'mpd_ppo', 'vanilla_ppo', 'a2c', 'taa_ppo'}
+    on_policy_set = {'mpd_ppo', 'vanilla_ppo', 'a2c', 'taa_ppo', 'taa_ppo_4d'}
     for algo_name in algos:
         m = all_metrics.get(algo_name)
         if m is None: continue
@@ -316,7 +320,7 @@ def plot_convergence_analysis(all_metrics, save_path, algos):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--algos', type=str, nargs='+',
-                        default=['mpd_ppo', 'vanilla_ppo', 'a2c', 'ddpg', 'td3', 'sac', 'taa_ppo'])
+                        default=['mpd_ppo', 'vanilla_ppo', 'a2c', 'taa_ppo', 'taa_ppo_4d', 'ddpg', 'td3', 'sac'])
     parser.add_argument('--output', type=str, default=None)
     args = parser.parse_args()
 

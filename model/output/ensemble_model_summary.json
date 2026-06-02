@@ -1,0 +1,47 @@
+[
+  {
+    "seed": 0,
+    "best_val_loss": 0.008580553772238394,
+    "test_mae": 0.09509734064340591,
+    "test_rmse": 0.1208500936627388,
+    "test_r2": 0.9876414211466908,
+    "epochs_trained": 25,
+    "model_path": "e:/ClaudeCodeWorkplace/2026-5-12-\u53c2\u6570\u4f18\u5316/model/output\\best_model_seed0.pth"
+  },
+  {
+    "seed": 1,
+    "best_val_loss": 0.008504446738192605,
+    "test_mae": 0.09501439332962036,
+    "test_rmse": 0.12078575044870377,
+    "test_r2": 0.9876545779407024,
+    "epochs_trained": 29,
+    "model_path": "e:/ClaudeCodeWorkplace/2026-5-12-\u53c2\u6570\u4f18\u5316/model/output\\best_model_seed1.pth"
+  },
+  {
+    "seed": 2,
+    "best_val_loss": 0.008607515418488119,
+    "test_mae": 0.09727257490158081,
+    "test_rmse": 0.12960395216941833,
+    "test_r2": 0.9857861734926701,
+    "epochs_trained": 30,
+    "model_path": "e:/ClaudeCodeWorkplace/2026-5-12-\u53c2\u6570\u4f18\u5316/model/output\\best_model_seed2.pth"
+  },
+  {
+    "seed": 3,
+    "best_val_loss": 0.009575452513268424,
+    "test_mae": 0.10610339790582657,
+    "test_rmse": 0.14470772445201874,
+    "test_r2": 0.9822802376002073,
+    "epochs_trained": 37,
+    "model_path": "e:/ClaudeCodeWorkplace/2026-5-12-\u53c2\u6570\u4f18\u5316/model/output\\best_model_seed3.pth"
+  },
+  {
+    "seed": 4,
+    "best_val_loss": 0.009265244265811311,
+    "test_mae": 0.09935878962278366,
+    "test_rmse": 0.12989304959774017,
+    "test_r2": 0.985722690820694,
+    "epochs_trained": 27,
+    "model_path": "e:/ClaudeCodeWorkplace/2026-5-12-\u53c2\u6570\u4f18\u5316/model/output\\best_model_seed4.pth"
+  }
+]
