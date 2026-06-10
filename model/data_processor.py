@@ -187,7 +187,7 @@ class DataProcessor:
         X_raw = data['X']          # (N, 7, 12) raw physical units
         y_raw = data['y_voltage']  # (N, 14) raw V
         fa_raw = data['future_actions']  # (N, 14, 2) raw physical
-        pid_aug = data['pot_ids']  # (N,) — already mapped indices
+        pid_raw = data['pot_ids']  # (N,) — actual pot numbers (1101-1142) or 0-indexed (legacy)
 
         # Standardize X (same scaler as training data)
         N = len(X_raw)
@@ -213,12 +213,19 @@ class DataProcessor:
         target_scale = self.scaler.scale_[target_idx]
         y_std = (y_raw - target_mean) / target_scale
 
-        # Clamp pot_ids to valid range (original data's pot index range)
-        max_pot_id = pid_aug.max()
-        if max_pot_id >= len(feature_cols) * 10:  # heuristic: pot_ids should be < actual pot count
-            pid_aug = np.clip(pid_aug, 0, 41)  # 42 pots in the dataset
+        # Handle pot_ids: actual pot numbers (1101-1142) or legacy 0-indexed
+        # If values are >= 1000, they're actual pot numbers — use directly
+        # Otherwise they're 0-indexed legacy values — map through pot_id_mapping
+        if pid_raw.max() >= 1000:
+            # Actual pot numbers — keep as-is, will be re-mapped in process()
+            pid_aug = pid_raw.copy()
+            print(f"   Augmented: {N} samples loaded (pot numbers {pid_aug.min()}-{pid_aug.max()})")
+        else:
+            # Legacy 0-indexed format — map through processor's pot mapping
+            all_pots_sorted = sorted(set(pid_raw))
+            pid_aug = pid_raw.copy()
+            print(f"   Augmented: {N} samples loaded (legacy indices, {len(all_pots_sorted)} unique pots)")
 
-        print(f"   Augmented: {N} samples loaded and standardized (pot_ids 0-{pid_aug.max()})")
         return X_std.astype(np.float32), y_std.astype(np.float32), \
             fa_std.astype(np.float32), pid_aug.astype(np.int64)
 

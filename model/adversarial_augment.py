@@ -121,8 +121,8 @@ def load_training_samples(feature_cols):
             samples.append({
                 'past_features': pot_features[i:i + INPUT_LEN],
                 'target_voltage': pot_set_voltages[i + INPUT_LEN:i + INPUT_LEN + OUTPUT_LEN],
-                'pot_id': pot_to_idx[pot_id],
-                'pot_num': pot_id,
+                'pot_id': pot_to_idx[pot_id],       # 0-indexed for env interaction
+                'pot_num': pot_id,                   # actual pot number (1101-1142)
             })
     return samples, scaler
 
@@ -301,7 +301,7 @@ def main():
     X_list = [r['past_features'] for r in augmented]             # (7, 12) raw
     y_list = [r['voltage_pred'] for r in augmented]              # (14,) raw V
     fa_list = [r['future_actions'] for r in augmented]           # (14, 2) raw
-    pid_list = [r['pot_id'] for r in augmented]
+    pid_list = [r['pot_num'] for r in augmented]                 # ACTUAL pot numbers (1101-1142)
     unc_list = [r['uncertainty'] for r in augmented]
 
     dataset = {

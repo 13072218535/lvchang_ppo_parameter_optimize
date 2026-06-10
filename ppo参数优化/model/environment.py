@@ -507,7 +507,7 @@ def load_predictor_model(model_path, num_pots, input_dim, device='cpu',
                    if k not in checkpoint and 'num_batches_tracked' not in k]
         unexpected = [k for k in checkpoint.keys()
                       if k not in predictor.state_dict()]
-        print(f"\n⚠ 条件预测模型架构不兼容，无法加载")
+        print(f"[WARN] 条件预测模型架构不兼容，无法加载")
         print(f"   缺失key: {missing[:4]}... (共{len(missing)}个)")
         print(f"   多余key: {unexpected[:4]}... (共{len(unexpected)}个)")
         print(f"   请重新训练条件预测器: cd model && python train.py (use_conditional=True)")

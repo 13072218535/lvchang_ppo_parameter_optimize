@@ -182,7 +182,13 @@
       "Bash(PYTHONIOENCODING=utf-8 D:/Anaconda3/envs/pytorch/python.exe \"E:/ClaudeCodeWorkplace/2026-5-12-参数优化/ppo参数优化/model/train_compare.py\" --algo sac --epochs 200 --device cuda)",
       "Bash(PYTHONIOENCODING=utf-8 D:/Anaconda3/envs/pytorch/python.exe *)",
       "Bash(where conda *)",
-      "Bash(py -0)"
+      "Bash(py -0)",
+      "Bash(awk '{print $11, $7, $6, $8, $9}')",
+      "Bash(rm -rf 'E:\\\\ClaudeCodeWorkplace\\\\2026-5-12-参数优化\\\\ppo参数优化\\\\model\\\\__pycache__\\\\*.pyc')",
+      "Bash(rm -rf 'E:\\\\ClaudeCodeWorkplace\\\\2026-5-12-参数优化\\\\ppo参数优化\\\\model\\\\algorithms\\\\__pycache__\\\\*.pyc')",
+      "Bash(awk '{print $NF, $5}')",
+      "Bash(mv E:/ClaudeCodeWorkplace/2026-5-12-参数优化/model/output/best_conditional_seed0.pth E:/ClaudeCodeWorkplace/2026-5-12-参数优化/model/output/best_conditional_seed0_round2_bad.pth)",
+      "Bash(cp E:/ClaudeCodeWorkplace/2026-5-12-参数优化/model/output/best_conditional_seed4.pth E:/ClaudeCodeWorkplace/2026-5-12-参数优化/model/output/best_conditional_seed0.pth)"
     ]
   }
 }
