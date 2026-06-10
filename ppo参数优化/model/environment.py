@@ -465,9 +465,22 @@ def load_predictor_model(model_path, num_pots, input_dim, device='cpu',
         predictor.load_checkpoints(ensemble_checkpoint_paths)
         return predictor
 
+    checkpoint = torch.load(model_path, map_location=device)
+
+    # Detect actual num_pots from checkpoint (may differ if augmented data added pots)
+    ckpt_num_pots = None
+    pot_key = 'base_model.pot_embedding.weight'
+    if pot_key in checkpoint:
+        ckpt_num_pots = checkpoint[pot_key].shape[0]
+    if ckpt_num_pots is not None and ckpt_num_pots != num_pots:
+        print(f"   Note: checkpoint has {ckpt_num_pots} pots, RL config expects {num_pots}")
+        actual_num_pots = ckpt_num_pots
+    else:
+        actual_num_pots = num_pots
+
     base_model = LSTMModelWithPotEmbedding(
         input_dim=input_dim,
-        num_pots=num_pots,
+        num_pots=actual_num_pots,
         pot_embed_dim=POT_EMBED_DIM,
         hidden_dim=HIDDEN_DIM,
         num_layers=NUM_LAYERS,
@@ -485,7 +498,6 @@ def load_predictor_model(model_path, num_pots, input_dim, device='cpu',
     ).to(device)
 
     # 加载模型权重（兼容新旧架构）
-    checkpoint = torch.load(model_path, map_location=device)
     try:
         predictor.load_state_dict(checkpoint)
         print(f"   条件预测模型加载成功: {os.path.basename(model_path)}")

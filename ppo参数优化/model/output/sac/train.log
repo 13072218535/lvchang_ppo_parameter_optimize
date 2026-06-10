@@ -1,0 +1,56 @@
+============================================================
+Training: SAC（Off-policy）
+Device: cuda | Epochs: 200 | Seed: 42
+============================================================
+
+1. Loading training data...
+   Samples: 7938, Features: 12
+
+2. Loading condition predictor...
+   Found 5 ensemble checkpoints, using ensemble predictor
+  Member 0 loaded: best_conditional_seed0.pth
+  Member 1 loaded: best_conditional_seed1.pth
+  Member 2 loaded: best_conditional_seed2.pth
+  Member 3 loaded: best_conditional_seed3.pth
+  Member 4 loaded: best_conditional_seed4.pth
+   Predictor loaded.
+
+4. Creating environment...
+   State dim: 102, Action dim: 28
+
+5. Initializing SAC...
+   Algorithm initialized.
+  Warming up replay buffer (256 steps)...
+  Warmup complete (256 transitions, 14s)
+Epoch [0001/200] Reward: -738.09 (R=748.21 Ps=-23.89 Pb=-1358.32 Pu=-104.09) Best: -738.09 AL: 440.18748 CL: 35306.8216
+Epoch [0010/200] Reward: -1623.88 (R=742.96 Ps=-72.65 Pb=-2175.60 Pu=-118.59) Best: -738.09 AL: 704.08817 CL: 54767.0449
+Epoch [0020/200] Reward: -1447.17 (R=746.17 Ps=-110.82 Pb=-1905.54 Pu=-176.98) Best: -738.09 AL: 889.82132 CL: 77195.5822
+Epoch [0030/200] Reward: -1645.22 (R=746.95 Ps=-74.49 Pb=-2198.37 Pu=-119.30) Best: -738.09 AL: 911.45385 CL: 78704.0274
+Epoch [0040/200] Reward: -931.54 (R=747.84 Ps=-92.58 Pb=-1473.83 Pu=-112.97) Best: -738.09 AL: 831.07865 CL: 66701.0752
+Epoch [0050/200] Reward: -1039.55 (R=747.97 Ps=-124.44 Pb=-1521.72 Pu=-141.36) Best: -738.09 AL: 723.94396 CL: 52252.5628
+Epoch [0060/200] Reward: -1061.58 (R=684.86 Ps=-145.57 Pb=-1433.26 Pu=-167.60) Best: -738.09 AL: 677.36366 CL: 46158.0850
+Epoch [0070/200] Reward: -0.20 (R=710.89 Ps=-0.02 Pb=-573.43 Pu=-137.64) Best: 40.98 AL: 341.48121 CL: 21280.5895
+Epoch [0080/200] Reward: -38.85 (R=745.37 Ps=0.00 Pb=-635.73 Pu=-148.49) Best: 40.98 AL: 130.48949 CL: 8092.9223
+Epoch [0090/200] Reward: 134.91 (R=746.80 Ps=0.00 Pb=-482.82 Pu=-129.06) Best: 156.14 AL: 71.44477 CL: 3739.0855
+Epoch [0100/200] Reward: 217.96 (R=747.54 Ps=-0.05 Pb=-449.59 Pu=-79.94) Best: 217.96 AL: 31.66196 CL: 2183.0326
+Epoch [0110/200] Reward: 288.34 (R=726.18 Ps=0.00 Pb=-302.90 Pu=-134.93) Best: 348.38 AL: -23.97634 CL: 1641.7125
+Epoch [0120/200] Reward: 328.53 (R=747.72 Ps=0.00 Pb=-295.72 Pu=-123.47) Best: 348.38 AL: -70.79204 CL: 2016.8500
+Epoch [0130/200] Reward: 351.27 (R=746.02 Ps=-0.01 Pb=-281.05 Pu=-113.69) Best: 375.30 AL: -101.69823 CL: 2276.3165
+Epoch [0140/200] Reward: 301.95 (R=745.54 Ps=0.00 Pb=-290.17 Pu=-153.42) Best: 375.30 AL: -123.54238 CL: 2471.7502
+Epoch [0150/200] Reward: 376.94 (R=748.14 Ps=-0.11 Pb=-297.00 Pu=-74.09) Best: 384.28 AL: -138.48102 CL: 2602.5048
+Epoch [0160/200] Reward: 323.30 (R=710.62 Ps=-0.05 Pb=-276.03 Pu=-111.25) Best: 384.28 AL: -144.37343 CL: 2712.5184
+Epoch [0170/200] Reward: 303.47 (R=709.03 Ps=-0.00 Pb=-283.79 Pu=-121.76) Best: 384.28 AL: -148.34337 CL: 2722.0458
+Epoch [0180/200] Reward: 339.50 (R=747.86 Ps=-0.10 Pb=-295.43 Pu=-112.83) Best: 384.28 AL: -146.30984 CL: 2640.4835
+Epoch [0190/200] Reward: 337.48 (R=746.40 Ps=-0.05 Pb=-296.28 Pu=-112.59) Best: 384.28 AL: -148.03896 CL: 2643.8449
+Epoch [0200/200] Reward: 322.74 (R=722.56 Ps=-0.13 Pb=-282.97 Pu=-116.72) Best: 384.28 AL: -149.52328 CL: 2591.8050
+
+Training complete! Best reward: 384.2810, Time: 5504.6s
+
+7. Generating training curves...
+Training curves saved: E:\ClaudeCodeWorkplace\2026-5-12-参数优化\ppo参数优化\model\output\sac\visualization\training_curves.png
+
+All outputs saved to: E:\ClaudeCodeWorkplace\2026-5-12-参数优化\ppo参数优化\model\output\sac
+  - best_model.pth / final_model.pth
+  - training_metrics.json
+  - visualization/training_curves.png
+

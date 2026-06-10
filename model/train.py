@@ -414,10 +414,15 @@ def plot_test_predictions_combined(y_true, y_pred, save_path=None):
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--use_augmented', action='store_true', help='Include adversarial augmented data')
+    args = parser.parse_args()
+
     # 设置随机种子（保证实验可复现）
     set_seed(SEED)
     print(f"已设置随机种子: {SEED}")
-    
+
     # 设置设备
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"使用设备: {device}")
@@ -427,14 +432,20 @@ def main():
     use_conditional = True  # 是否使用条件预测模型
     split_method = 'pot'
 
+    # 增强数据路径
+    aug_path = os.path.join(OUTPUT_DIR, 'adversarial_augmented.pkl') if args.use_augmented else None
+    if args.use_augmented:
+        print(f"增强数据: {aug_path} (exists={os.path.exists(aug_path)})")
+
     print("=" * 60)
     print("工作电压预测 - 模型训练")
     print("=" * 60)
 
     # 数据处理
-    processor = DataProcessor(data_path=DATA_PATH, input_len=INPUT_LEN, 
+    processor = DataProcessor(data_path=DATA_PATH, input_len=INPUT_LEN,
                               output_len=OUTPUT_LEN, split_method=split_method)
-    train_loader, val_loader, test_loader, num_pots, feature_cols = processor.process(use_future_actions=use_conditional)
+    train_loader, val_loader, test_loader, num_pots, feature_cols = \
+        processor.process(use_future_actions=use_conditional, augmented_data_path=aug_path)
 
     # 获取特征数量
     num_features = train_loader.dataset.X.shape[-1]

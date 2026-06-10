@@ -389,7 +389,9 @@ def main():
         ensemble_is_ensemble = True
     else:
         print(f"   Found {len(ensemble_paths)} ensemble checkpoints (< {UNC_NUM_ENSEMBLE}), using single predictor")
-        model_path = os.path.join(MODEL_OUTPUT_DIR, 'best_conditional_model.pth')
+        model_path = os.path.join(MODEL_OUTPUT_DIR, 'best_conditional_model_augmented.pth')
+        if not os.path.exists(model_path):
+            model_path = os.path.join(MODEL_OUTPUT_DIR, 'best_conditional_model.pth')
         if not os.path.exists(model_path):
             model_path = os.path.join(MODEL_OUTPUT_DIR, 'final_conditional_model.pth')
         print(f"   Model: {model_path}")

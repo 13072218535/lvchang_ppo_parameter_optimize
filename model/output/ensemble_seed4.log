@@ -1,0 +1,70 @@
+Device: cuda
+Phase: conditional
+Seeds: 4 to 4
+Augmented data: e:/ClaudeCodeWorkplace/2026-5-12-参数优化/model/output\adversarial_augmented.pkl (exists=True)
+
+============================================================
+Training with seed=4, conditional=True
+Augmented data: e:/ClaudeCodeWorkplace/2026-5-12-参数优化/model/output\adversarial_augmented.pkl
+============================================================
+============================================================
+开始数据处理
+============================================================
+
+1. 加载数据...
+   原始数据形状: (8778, 24)
+   槽号数量: 42
+   日期范围: 2025-10-01 00:00:00 至 2026-04-28 00:00:00
+
+2. 数据预处理...
+   缺失值处理完成
+
+3. 特征工程...
+   特征数量: 12
+   特征列表: ['平均电压', '实际设定', '电压设定', '铝水平', 'ALF加料量(设定)']... (共12个)
+
+4. 数据集划分...
+   划分方式: 槽号划分
+   训练槽号数量: 30
+   验证槽号数量: 6
+   测试槽号数量: 6
+   训练集: 6270 条记录
+   验证集: 1254 条记录
+   测试集: 1254 条记录
+   ✅ 验证集与测试集完全独立，无数据共享
+
+5. 数据标准化...
+
+6. 创建序列...
+   训练序列: 5670 样本
+   验证序列: 1134 样本
+   测试序列: 1134 样本
+   输入形状: (5670, 7, 12)
+   输出形状: (5670, 14)
+   未来动作形状: (5670, 14, 2)
+
+6.5. 加载对抗增强数据...
+   Loaded augmented data: 619 samples
+   合并后训练集: 6289 样本 (原始 5670 + 增强 619)
+   槽号映射: 64 个槽号
+
+7. 创建DataLoader...
+   DataLoader创建完成
+============================================================
+WARN: Base model architecture mismatch: Error(s) in loading state_dict for LSTMModelWithPotEmbedding:
+	size mismatch for pot_embedding.weight: copying a param with shape torch.Size([42, 16]) from checkpoint, the shape in current model is torch.Size([64, 16]).
+Base model will start from random init
+Model params: 239,740
+  Epoch 001: train=0.993686, val=1.789578, best=1.789578
+  Epoch 010: train=0.110915, val=0.651337, best=0.510004
+  Epoch 020: train=0.088436, val=0.660486, best=0.279247
+  Early stop at epoch 27
+  Seed 4: val_loss=0.279247, test_mae=0.506407, test_rmse=0.781902
+
+============================================================
+Ensemble Training Summary (conditional)
+============================================================
+  Individual MAEs: ['0.506407']
+  Mean MAE: 0.506407 ± 0.000000
+  Summary saved to: e:/ClaudeCodeWorkplace/2026-5-12-参数优化/model/output\ensemble_conditional_summary.json
+

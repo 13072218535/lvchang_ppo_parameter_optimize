@@ -1,0 +1,39 @@
+Traceback (most recent call last):
+  File "E:\ClaudeCodeWorkplace\2026-5-12-参数优化\ppo参数优化\model\train_compare.py", line 467, in <module>
+    main()
+  File "E:\ClaudeCodeWorkplace\2026-5-12-参数优化\ppo参数优化\model\train_compare.py", line 438, in main
+    metrics, best_r = train_on_policy(algo, algo_name, env, train_samples, algo_dir, args.epochs)
+  File "E:\ClaudeCodeWorkplace\2026-5-12-参数优化\ppo参数优化\model\train_compare.py", line 250, in train_on_policy
+    algo.save_model(os.path.join(algo_dir, 'best_model.pth'))
+  File "E:\ClaudeCodeWorkplace\2026-5-12-参数优化\ppo参数优化\model\ppo.py", line 591, in save_model
+    torch.save({
+  File "E:\ClaudeCodeWorkplace\2026-5-12-参数优化\ppo参数优化\model\config.py", line 24, in _patched_save
+    os.replace(tmp_path, f_str)
+PermissionError: [WinError 5] 拒绝访问。: 'E:\\ClaudeCodeWorkplace\\2026-5-12-参数优化\\ppo参数优化\\model\\output\\mpd_ppo\\tmppie2ri9f.pth' -> 'E:\\ClaudeCodeWorkplace\\2026-5-12-参数优化\\ppo参数优化\\model\\output\\mpd_ppo\\best_model.pth'
+
+ERROR conda.cli.main_run:execute(124): `conda run python train_compare.py --algo mpd_ppo --epochs 200` failed. (See above for error)
+============================================================
+Training: MPD_PPO（On-policy）
+Device: cuda | Epochs: 200 | Seed: 42
+============================================================
+
+1. Loading training data...
+   Samples: 7938, Features: 12
+
+2. Loading condition predictor...
+   Found 5 ensemble checkpoints, using ensemble predictor
+  Member 0 loaded: best_conditional_seed0.pth
+  Member 1 loaded: best_conditional_seed1.pth
+  Member 2 loaded: best_conditional_seed2.pth
+  Member 3 loaded: best_conditional_seed3.pth
+  Member 4 loaded: best_conditional_seed4.pth
+   Predictor loaded.
+
+4. Creating environment...
+   State dim: 102, Action dim: 28
+
+5. Initializing MPD_PPO...
+   Algorithm initialized.
+Epoch [0001/200] Reward: -350.35 (R=748.34 Ps=-949.03 Pb=-20.63 Pu=-129.02) Best: -350.35 AL: -0.01955 CL: 0.6977
+Epoch [0010/200] Reward: 398.01 (R=702.75 Ps=-165.66 Pb=-0.32 Pu=-138.76) Best: 398.01 AL: 0.00275 CL: 0.9863
+

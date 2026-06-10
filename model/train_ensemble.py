@@ -31,7 +31,7 @@ from train import (train_epoch, validate_epoch, test_evaluate,
                    calculate_metrics, evaluate_by_day)
 
 
-def train_single_seed(seed, device, use_conditional=True):
+def train_single_seed(seed, device, use_conditional=True, augmented_data_path=None):
     """
     Train one model with a specific random seed.
     Returns metrics dict and saves checkpoint.
@@ -39,12 +39,15 @@ def train_single_seed(seed, device, use_conditional=True):
     set_seed(seed)
     print(f"\n{'='*60}")
     print(f"Training with seed={seed}, conditional={use_conditional}")
+    if augmented_data_path:
+        print(f"Augmented data: {augmented_data_path}")
     print(f"{'='*60}")
 
     processor = DataProcessor(data_path=DATA_PATH, input_len=INPUT_LEN,
                               output_len=OUTPUT_LEN, split_method='pot')
     train_loader, val_loader, test_loader, num_pots, feature_cols = \
-        processor.process(use_future_actions=use_conditional)
+        processor.process(use_future_actions=use_conditional,
+                         augmented_data_path=augmented_data_path)
 
     num_features = train_loader.dataset.X.shape[-1]
 
@@ -218,12 +221,18 @@ def main():
                         help='Starting seed index (default: 0)')
     parser.add_argument('--device', type=str, default='cpu',
                         help='Device: cpu or cuda')
+    parser.add_argument('--use_augmented', action='store_true',
+                        help='Include adversarial augmented data in training')
     args = parser.parse_args()
 
     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
     print(f"Device: {device}")
     print(f"Phase: {args.phase}")
     print(f"Seeds: {args.start_seed} to {args.start_seed + args.num_seeds - 1}")
+
+    aug_path = os.path.join(OUTPUT_DIR, 'adversarial_augmented.pkl') if args.use_augmented else None
+    if args.use_augmented:
+        print(f"Augmented data: {aug_path} (exists={os.path.exists(aug_path)})")
 
     if args.phase == 'calibrate':
         calibrate_threshold(args.num_seeds, device)
@@ -233,7 +242,8 @@ def main():
     results = []
 
     for s in range(args.start_seed, args.start_seed + args.num_seeds):
-        result = train_single_seed(s, device, use_conditional=use_conditional)
+        result = train_single_seed(s, device, use_conditional=use_conditional,
+                                   augmented_data_path=aug_path)
         results.append(result)
         print(f"  Seed {s}: val_loss={result['best_val_loss']:.6f}, "
               f"test_mae={result['test_mae']:.6f}, test_rmse={result['test_rmse']:.6f}")

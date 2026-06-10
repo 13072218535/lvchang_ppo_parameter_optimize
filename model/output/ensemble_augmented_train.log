@@ -1,0 +1,115 @@
+
+# >>>>>>>>>>>>>>>>>>>>>> ERROR REPORT <<<<<<<<<<<<<<<<<<<<<<
+
+    Traceback (most recent call last):
+      File "D:\Anaconda3\Lib\site-packages\conda\exception_handler.py", line 17, in __call__
+        return func(*args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^
+      File "D:\Anaconda3\Lib\site-packages\conda\cli\main.py", line 83, in main_subshell
+        exit_code = do_call(args, parser)
+                    ^^^^^^^^^^^^^^^^^^^^^
+      File "D:\Anaconda3\Lib\site-packages\conda\cli\conda_argparse.py", line 196, in do_call
+        result = getattr(module, func_name)(args, parser)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      File "D:\Anaconda3\Lib\site-packages\conda\cli\main_run.py", line 117, in execute
+        print(response.stdout, file=sys.stdout)
+    UnicodeEncodeError: 'gbk' codec can't encode character '\u2705' in position 934: illegal multibyte sequence
+
+`$ D:\Anaconda3\Scripts\conda-script.py run -n pytorch python train_ensemble.py --phase conditional --use_augmented --device cuda`
+
+  environment variables:
+                 CIO_TEST=<not set>
+     CLAUDE_CODE_EXECPATH=C:\Users\msi\.local\bin\claude.exe
+               CONDA_ROOT=D:\Anaconda3
+                CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1
+           CURL_CA_BUNDLE=<not set>
+                  EXEPATH=C:\Program Files\Git\bin
+             GIT_LFS_PATH=C:\Program Files\Git\bin\Git LFS
+                 HOMEPATH=\Users\msi
+               LD_PRELOAD=<not set>
+NODEFAULTCURRENTDIRECTORYINEXEPATH=1
+                NODE_PATH=C:\Program Files\nodejs\node_global\node_modules
+                     PATH=C:\Users\msi\bin;C:\Program Files\Git\mingw64\bin;C:\Program
+                          Files\Git\usr\local\bin;C:\Program Files\Git\usr\bin;C:\Program
+                          Files\Git\usr\bin;C:\Program Files\Git\mingw64\bin;C:\Program
+                          Files\Git\usr\bin;C:\Users\msi\bin;C:\Program Files\NVIDIA GPU
+                          Computing Toolkit\CUDA;C:\Program Files\NVIDIA GPU Computing
+                          Toolkit\CUDA\v12.1\lib\x64;C:\Program Files\NVIDIA GPU Computing
+                          Toolkit\CUDA\v12.1\bin;C:\Program Files\NVIDIA GPU Computing
+                          Toolkit\CUDA\v12.1\libnvvp;C:\Program Files\Common Files\Oracle\Java\j
+                          avapath;E:\Python\Python3.13.7\Scripts;E:\Python\Python3.13.7;C:\Windo
+                          ws\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\Wi
+                          ndowsPowerShell\v1.0;C:\Windows\System32\OpenSSH;C:\Program Files
+                          (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\NVIDIA
+                          Corporation\NVIDIA NvDLISR;D:\Anaconda3;D:\Anaconda3\Scripts;D:\Anacon
+                          da3\Library\bin;D:\Anaconda3\Library\mingw-
+                          w64\bin;D:\Anaconda3\Library\usr\bin;C:\Program
+                          Files\dotnet;C:\Program Files\nodejs;C:\Program
+                          Files\nodejs\node_global\node_modules;E:\MyJdk\bin;C:\Program
+                          Files\Git\cmd;C:\Program Files\NVIDIA Corporation\Nsight Compute
+                          2023.1.0;C:\Program Files (x86)\Windows Kits\10\Windows Performance
+                          Toolkit;C:\Program Files (x86)\HP\HP OCR\DB_Lib;C:\Program
+                          Files\HP\Common\HPDestPlgIn;C:\Program Files
+                          (x86)\HP\Common\HPDestPlgIn;C:\Program Files\Git\usr\bin\Git LFS;E:\ba
+                          ndzip\Bandizip;C:\Users\msi\AppData\Local\Microsoft\WindowsApps;E:\Pyc
+                          harm\PyCharm 2024.3.1.1\bin;E:\VsCode\Microsoft VS Code\bin;C:\Program
+                          Files\nodejs\node_global;C:\Users\msi\AppData\Local\Programs\Ollama;E:
+                          \Lingma\bin;C:\Program Files\HP\Common\HPDestPlgIn;C:\Program Files
+                          (x86)\HP\Common\HPDestPlgIn;C:\Users\msi\.local\bin;C:\Program
+                          Files\Git\usr\bin\vendor_perl;C:\Program Files\Git\usr\bin\core_perl
+             PSMODULEPATH=C:\Program Files\WindowsPowerShell\Modules;C:\Windows\system32\Windows
+                          PowerShell\v1.0\Modules
+       REQUESTS_CA_BUNDLE=<not set>
+            SSL_CERT_FILE=<not set>
+
+     active environment : None
+       user config file : C:\Users\msi\.condarc
+ populated config files : C:\Users\msi\.condarc
+          conda version : 24.1.2
+    conda-build version : 24.1.2
+         python version : 3.11.7.final.0
+                 solver : libmamba (default)
+       virtual packages : __archspec=1=x86_64
+                          __conda=24.1.2=0
+                          __cuda=12.6=0
+                          __win=0=0
+       base environment : D:\Anaconda3  (read only)
+      conda av data dir : D:\Anaconda3\etc\conda
+  conda av metadata url : None
+           channel URLs : https://repo.anaconda.com/pkgs/main/win-64
+                          https://repo.anaconda.com/pkgs/main/noarch
+                          https://repo.anaconda.com/pkgs/r/win-64
+                          https://repo.anaconda.com/pkgs/r/noarch
+                          https://repo.anaconda.com/pkgs/msys2/win-64
+                          https://repo.anaconda.com/pkgs/msys2/noarch
+          package cache : D:\Anaconda3\pkgs
+                          C:\Users\msi\.conda\pkgs
+                          C:\Users\msi\AppData\Local\conda\conda\pkgs
+       envs directories : D:\Anaconda3\envs
+                          C:\Users\msi\.conda\envs
+                          C:\Users\msi\AppData\Local\conda\conda\envs
+               platform : win-64
+             user-agent : conda/24.1.2 requests/2.31.0 CPython/3.11.7 Windows/10 Windows/10.0.22621 solver/libmamba conda-libmamba-solver/24.1.0 libmambapy/1.5.6
+          administrator : False
+             netrc file : None
+           offline mode : False
+
+
+An unexpected error has occurred. Conda has prepared the above report.
+If you suspect this error is being caused by a malfunctioning plugin,
+consider using the --no-plugins option to turn off plugins.
+
+Example: conda --no-plugins install <package>
+
+Alternatively, you can set the CONDA_NO_PLUGINS environment variable on
+the command line to run the command without plugins enabled.
+
+Example: CONDA_NO_PLUGINS=true conda install <package>
+
+If submitted, this report will be used by core maintainers to improve
+future releases of conda.
+Would you like conda to send this report to the core maintainers? [y/N]: 
+No report sent. To permanently opt-out, use
+
+    $ conda config --set report_errors false
+

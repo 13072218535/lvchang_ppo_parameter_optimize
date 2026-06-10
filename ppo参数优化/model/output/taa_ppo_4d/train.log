@@ -1,0 +1,52 @@
+Traceback (most recent call last):
+  File "D:\Anaconda3\envs\pytorch\lib\shutil.py", line 815, in move
+    os.rename(src, real_dst)
+OSError: [WinError 17] 系统无法将文件移到不同的磁盘驱动器。: 'C:\\Users\\msi\\AppData\\Local\\Temp\\tmpevkza0n1.pth' -> 'E:\\ClaudeCodeWorkplace\\2026-5-12-参数优化\\ppo参数优化\\model\\output\\taa_ppo_4d\\best_model.pth'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "E:\ClaudeCodeWorkplace\2026-5-12-参数优化\ppo参数优化\model\train_compare.py", line 467, in <module>
+    main()
+  File "E:\ClaudeCodeWorkplace\2026-5-12-参数优化\ppo参数优化\model\train_compare.py", line 438, in main
+    metrics, best_r = train_on_policy(algo, algo_name, env, train_samples, algo_dir, args.epochs)
+  File "E:\ClaudeCodeWorkplace\2026-5-12-参数优化\ppo参数优化\model\train_compare.py", line 250, in train_on_policy
+    algo.save_model(os.path.join(algo_dir, 'best_model.pth'))
+  File "E:\ClaudeCodeWorkplace\2026-5-12-参数优化\ppo参数优化\model\algorithms\taa_ppo_4d.py", line 233, in save_model
+    torch.save({
+  File "E:\ClaudeCodeWorkplace\2026-5-12-参数优化\ppo参数优化\model\config.py", line 22, in _patched_save
+    shutil.move(tmp_path, f_str)
+  File "D:\Anaconda3\envs\pytorch\lib\shutil.py", line 835, in move
+    copy_function(src, real_dst)
+  File "D:\Anaconda3\envs\pytorch\lib\shutil.py", line 434, in copy2
+    copyfile(src, dst, follow_symlinks=follow_symlinks)
+  File "D:\Anaconda3\envs\pytorch\lib\shutil.py", line 256, in copyfile
+    with open(dst, 'wb') as fdst:
+OSError: [Errno 22] Invalid argument: 'E:\\ClaudeCodeWorkplace\\2026-5-12-参数优化\\ppo参数优化\\model\\output\\taa_ppo_4d\\best_model.pth'
+
+ERROR conda.cli.main_run:execute(124): `conda run python train_compare.py --algo taa_ppo_4d --epochs 200` failed. (See above for error)
+============================================================
+Training: TAA_PPO_4D（On-policy）
+Device: cuda | Epochs: 200 | Seed: 42
+============================================================
+
+1. Loading training data...
+   Samples: 7938, Features: 12
+
+2. Loading condition predictor...
+   Found 5 ensemble checkpoints, using ensemble predictor
+  Member 0 loaded: best_conditional_seed0.pth
+  Member 1 loaded: best_conditional_seed1.pth
+  Member 2 loaded: best_conditional_seed2.pth
+  Member 3 loaded: best_conditional_seed3.pth
+  Member 4 loaded: best_conditional_seed4.pth
+   Predictor loaded.
+
+4. Creating environment...
+   State dim: 102, Action dim: 28
+
+5. Initializing TAA_PPO_4D...
+   Algorithm initialized.
+   TAA-PPO-4D: bound penalty weight set to 3.0
+Epoch [0001/200] Reward: 252.01 (R=748.43 Ps=-271.54 Pb=-81.44 Pu=-143.45) Best: 252.01 AL: -0.04634 CL: 0.6851
+

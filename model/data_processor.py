@@ -175,7 +175,54 @@ class DataProcessor:
                (X_val, y_val, pot_ids_val, future_actions_val), \
                (X_test, y_test, pot_ids_test, future_actions_test)
 
-    def process(self, use_future_actions=False):
+    def load_augmented_sequences(self, aug_path, feature_cols):
+        """
+        加载对抗增强数据，标准化后返回 (X, y, future_actions, pot_ids)。
+        仅注入训练集，不触碰验证/测试集。
+        """
+        import pickle
+        with open(aug_path, 'rb') as f:
+            data = pickle.load(f)
+
+        X_raw = data['X']          # (N, 7, 12) raw physical units
+        y_raw = data['y_voltage']  # (N, 14) raw V
+        fa_raw = data['future_actions']  # (N, 14, 2) raw physical
+        pid_aug = data['pot_ids']  # (N,) — already mapped indices
+
+        # Standardize X (same scaler as training data)
+        N = len(X_raw)
+        X_std = np.zeros_like(X_raw, dtype=np.float32)
+        for i in range(N):
+            X_std[i] = self.scaler.transform(X_raw[i])
+
+        # Standardize future actions
+        alf_idx = feature_cols.index('ALF加料量(实际)') if 'ALF加料量(实际)' in feature_cols else 9
+        out_idx = feature_cols.index('实际出铝量') if '实际出铝量' in feature_cols else 10
+        alf_mean = self.scaler.mean_[alf_idx]
+        alf_scale = self.scaler.scale_[alf_idx]
+        out_mean = self.scaler.mean_[out_idx]
+        out_scale = self.scaler.scale_[out_idx]
+
+        fa_std = fa_raw.copy()
+        fa_std[:, :, 0] = (fa_std[:, :, 0] - alf_mean) / alf_scale
+        fa_std[:, :, 1] = (fa_std[:, :, 1] - out_mean) / out_scale
+
+        # Standardize target voltage
+        target_idx = feature_cols.index(self.target)
+        target_mean = self.scaler.mean_[target_idx]
+        target_scale = self.scaler.scale_[target_idx]
+        y_std = (y_raw - target_mean) / target_scale
+
+        # Clamp pot_ids to valid range (original data's pot index range)
+        max_pot_id = pid_aug.max()
+        if max_pot_id >= len(feature_cols) * 10:  # heuristic: pot_ids should be < actual pot count
+            pid_aug = np.clip(pid_aug, 0, 41)  # 42 pots in the dataset
+
+        print(f"   Augmented: {N} samples loaded and standardized (pot_ids 0-{pid_aug.max()})")
+        return X_std.astype(np.float32), y_std.astype(np.float32), \
+            fa_std.astype(np.float32), pid_aug.astype(np.int64)
+
+    def process(self, use_future_actions=False, augmented_data_path=None):
         print("=" * 60)
         print("开始数据处理")
         print("=" * 60)
@@ -273,7 +320,7 @@ class DataProcessor:
         print(f"   训练集: {len(df_train)} 条记录")
         print(f"   验证集: {len(df_val)} 条记录")
         print(f"   测试集: {len(df_test)} 条记录")
-        print(f"   ✅ 验证集与测试集完全独立，无数据共享")
+        print(f"   [OK] 验证集与测试集完全独立，无数据共享")
         
         # 5. 数据标准化（在训练集上拟合，然后转换所有数据集）
         print("\n5. 数据标准化...")
@@ -304,7 +351,20 @@ class DataProcessor:
         if use_future_actions:
             print(f"   未来动作形状: {future_actions_train.shape}")
         
-        # 7. 创建槽号映射
+        # 7. 可选：加载对抗增强数据
+        if augmented_data_path and os.path.exists(augmented_data_path):
+            print("\n7. 加载对抗增强数据...")
+            X_aug, y_aug, fa_aug, pid_aug = self.load_augmented_sequences(
+                augmented_data_path, feature_cols)
+            X_train = np.concatenate([X_train, X_aug], axis=0)
+            y_train = np.concatenate([y_train, y_aug], axis=0)
+            pot_ids_train = np.concatenate([pot_ids_train, pid_aug], axis=0)
+            if use_future_actions:
+                future_actions_train = np.concatenate(
+                    [future_actions_train, fa_aug], axis=0)
+            print(f"   训练集合并后: {len(X_train)} 样本")
+
+        # 8. 创建槽号映射
         all_pots = np.unique(np.concatenate([pot_ids_train, pot_ids_val, pot_ids_test]))
         pot_id_mapping = {pot: idx for idx, pot in enumerate(sorted(all_pots))}
         

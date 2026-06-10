@@ -1,0 +1,37 @@
+============================================================
+Multi-Algorithm Training Results Comparison
+============================================================
+
+1. Loading training metrics...
+   MPD-PPO: 200 epochs, 1510s, final reward=501.72
+   Vanilla PPO: 200 epochs, 2210s, final reward=130.08
+   A2C: 200 epochs, 1936s, final reward=137.73
+   TAA-PPO: 200 epochs, 2228s, final reward=160.46
+   TAA-PPO-4D: 200 epochs, 708s, final reward=622.29
+   DDPG: 200 epochs, 5116s, final reward=31.71
+   TD3: 200 epochs, 4958s, final reward=297.03
+   SAC: 200 epochs, 5505s, final reward=319.24
+
+2. Generating reward comparison...
+Reward comparison saved: E:\ClaudeCodeWorkplace\2026-5-12-参数优化\ppo参数优化\model\output\comparison\reward_comparison.png
+
+3. Generating convergence analysis...
+Convergence analysis saved: E:\ClaudeCodeWorkplace\2026-5-12-参数优化\ppo参数优化\model\output\comparison\convergence_analysis.png
+
+============================================================
+Summary:
+----------------------------------------------------------------------
+Algorithm         T_90%   Final Reward  Stability     Time
+----------------------------------------------------------------------
+MPD-PPO              12         501.72     171.75     1510s
+Vanilla PPO          14         130.08      57.09     2210s
+A2C                  46         137.73      52.80     1936s
+TAA-PPO              15         160.46      61.28     2228s
+TAA-PPO-4D            7         622.29      33.64      708s
+DDPG                  1          31.71     248.29     5116s
+TD3                 108         297.03      63.57     4958s
+SAC                 102         319.24      33.15     5505s
+----------------------------------------------------------------------
+
+Output: E:\ClaudeCodeWorkplace\2026-5-12-参数优化\ppo参数优化\model\output\comparison
+

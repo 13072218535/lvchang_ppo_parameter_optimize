@@ -1,47 +1,47 @@
 [
   {
     "seed": 0,
-    "best_val_loss": 0.009098424938403897,
-    "test_mae": 0.09295868128538132,
-    "test_rmse": 0.1215255931019783,
-    "test_r2": 0.987502877600491,
-    "epochs_trained": 27,
+    "best_val_loss": 0.008217788637719221,
+    "test_mae": 0.08469449728727341,
+    "test_rmse": 0.10892707109451294,
+    "test_r2": 0.9899597121402621,
+    "epochs_trained": 38,
     "model_path": "e:/ClaudeCodeWorkplace/2026-5-12-\u53c2\u6570\u4f18\u5316/model/output\\best_conditional_seed0.pth"
   },
   {
     "seed": 1,
-    "best_val_loss": 0.00956649167670144,
-    "test_mae": 0.09183955192565918,
-    "test_rmse": 0.11636902391910553,
-    "test_r2": 0.9885409316048026,
-    "epochs_trained": 25,
+    "best_val_loss": 0.008835795413081845,
+    "test_mae": 0.08991511166095734,
+    "test_rmse": 0.1165890023112297,
+    "test_r2": 0.9884975682944059,
+    "epochs_trained": 21,
     "model_path": "e:/ClaudeCodeWorkplace/2026-5-12-\u53c2\u6570\u4f18\u5316/model/output\\best_conditional_seed1.pth"
   },
   {
     "seed": 2,
-    "best_val_loss": 0.007978875138279464,
-    "test_mae": 0.08664984256029129,
-    "test_rmse": 0.11450786888599396,
-    "test_r2": 0.9889045422896743,
-    "epochs_trained": 79,
+    "best_val_loss": 0.008262585822699798,
+    "test_mae": 0.08148171752691269,
+    "test_rmse": 0.10286951810121536,
+    "test_r2": 0.9910453641787171,
+    "epochs_trained": 51,
     "model_path": "e:/ClaudeCodeWorkplace/2026-5-12-\u53c2\u6570\u4f18\u5316/model/output\\best_conditional_seed2.pth"
   },
   {
     "seed": 3,
-    "best_val_loss": 0.012580783649658164,
-    "test_mae": 0.10514676570892334,
-    "test_rmse": 0.135560542345047,
-    "test_r2": 0.984449615702033,
-    "epochs_trained": 18,
+    "best_val_loss": 0.008911204019871851,
+    "test_mae": 0.08988364785909653,
+    "test_rmse": 0.11642306298017502,
+    "test_r2": 0.9885302875190973,
+    "epochs_trained": 22,
     "model_path": "e:/ClaudeCodeWorkplace/2026-5-12-\u53c2\u6570\u4f18\u5316/model/output\\best_conditional_seed3.pth"
   },
   {
     "seed": 4,
-    "best_val_loss": 0.00886698094351838,
-    "test_mae": 0.08318094164133072,
-    "test_rmse": 0.10763385146856308,
-    "test_r2": 0.9901967002078891,
-    "epochs_trained": 36,
+    "best_val_loss": 0.00838291205258833,
+    "test_mae": 0.08885122835636139,
+    "test_rmse": 0.11554668843746185,
+    "test_r2": 0.9887023139744997,
+    "epochs_trained": 29,
     "model_path": "e:/ClaudeCodeWorkplace/2026-5-12-\u53c2\u6570\u4f18\u5316/model/output\\best_conditional_seed4.pth"
   }
 ]
